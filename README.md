@@ -23,15 +23,8 @@ This project uses the **Seoul Bike Sharing Demand** dataset from the [UCI Machin
 
 **Dataset Characteristics:**
 - **Size**: 8,760 instances (1 year of hourly data)
-- **Features**: 13 variables including weather data and temporal features
 - **Target**: Rented Bike Count (integer)
-- **Missing Values**: None
 - **License**: Creative Commons Attribution 4.0 International (CC BY 4.0)
-
-**Key Features:**
-- **Weather Data**: Temperature (°C), Humidity (%), Wind Speed (m/s), Visibility (10m), Dew Point (°C), Solar Radiation (MJ/m²), Rainfall (mm), Snowfall (cm)
-- **Temporal Features**: Date, Hour, Season (Winter/Spring/Summer/Autumn)
-- **Operational Features**: Holiday status, Functional Day indicator
 
 **Citation:**
 Seoul Bike Sharing Demand [Dataset]. (2020). UCI Machine Learning Repository. https://doi.org/10.24432/C5F62R.
@@ -60,24 +53,21 @@ Seoul Bike Sharing Demand [Dataset]. (2020). UCI Machine Learning Repository. ht
 ### **Experiment Tracking & Model Registry**
 - Complete MLflow integration for experiment tracking
 - Automated model registration with production staging
-- Hyperparameter optimization with Hyperopt
 - Model versioning and artifact management
 
 ### **Workflow Orchestration**
 - Prefect-based pipeline with task dependencies
 - Automated retraining schedules
-- Error handling and retry mechanisms
 - Parallel model training and evaluation
 
 ### **Model Deployment**
 - FastAPI web service with batch prediction
-- Docker containerization for portability
+- Docker containerization 
 - Health checks and monitoring endpoints
 
 ### **Comprehensive Monitoring**
 - Data quality assessment and data drift detection with Evidently
 - Model performance monitoring
-- Automated report generation
 
 ## 📊 Model Performance
 
@@ -85,7 +75,6 @@ The pipeline trains and evaluates 12+ ML algorithms:
 - **Best Model**: LightGBM/XGBoost
 - **R² Score**: 0.85-0.94
 - **RMSE**: 200-400 bikes
-- **Training Time**: 5-15 minutes
 
 ## 🛠️ Installation & Setup
 
@@ -173,7 +162,6 @@ uvicorn src.api.app:app --host 0.0.0.0 --port 8000 --reload
 
 ### 3. Access Services
 
-- **API Documentation**: http://localhost:8000/docs
 - **API Health Check**: http://localhost:8000/health
 - **MLflow UI**: http://localhost:5000 (if running)
 
@@ -285,7 +273,7 @@ s3://seoul-bike-sharing-aphdinh/
 - Training reports and summaries
 - Monitoring dashboards
 
-## 🎯 Course Requirements Fulfillment
+## 🎯 Requirements
 
 | Requirement | Status | Implementation |
 |-------------|--------|----------------|
@@ -310,13 +298,3 @@ make dev  # Full development setup
 make deploy-infra  # Deploy infrastructure
 python src/training/train.py prefect  # Run training on cloud
 ```
-
-## 📚 Documentation
-
-- [API Documentation](http://localhost:8000/docs)
-- [Monitoring Setup](docs/monitoring/)
-- [Deployment Guide](docs/deployment/)
-
----
-
-**Built with ❤️ using modern MLOps practices** 
