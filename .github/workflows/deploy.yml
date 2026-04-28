@@ -61,10 +61,18 @@ jobs:
         username: ec2-user
         key: ${{ secrets.EC2_SSH_KEY }}
         script: |
-          docker pull ${{ secrets.DOCKER_USERNAME }}/seoul-bike-api:latest
-          docker stop seoul-bike-api || true
-          docker rm seoul-bike-api || true
-          docker run -d \
+          if ! command -v docker &> /dev/null; then
+            sudo yum update -y
+            sudo yum install -y docker
+            sudo systemctl start docker
+            sudo systemctl enable docker
+            sudo usermod -aG docker ec2-user
+            newgrp docker
+          fi
+          sudo docker pull ${{ secrets.DOCKER_USERNAME }}/seoul-bike-api:latest
+          sudo docker stop seoul-bike-api || true
+          sudo docker rm seoul-bike-api || true
+          sudo docker run -d \
             --name seoul-bike-api \
             --restart unless-stopped \
             -p 8000:8000 \
