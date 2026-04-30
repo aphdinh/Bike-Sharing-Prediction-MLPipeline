@@ -123,8 +123,8 @@ def perform_hyperparameter_tuning_core(
             )
             
             logging.info(f"Optimization complete:")
-            logging.info(f"  Final test RMSE: {final_result['Test_RMSE']:.4f}")
-            logging.info(f"  Final test R²: {final_result['Test_R2']:.4f}")
+            logging.info(f"  Final test RMSE: {final_result['test_rmse']:.4f}")
+            logging.info(f"  Final test R²: {final_result['test_r2']:.4f}")
             
             return final_result
         
@@ -135,18 +135,14 @@ def perform_hyperparameter_tuning_core(
     return None
 
 def register_and_save_best_model_core(
-    results_df: pd.DataFrame,
-    X_train: pd.DataFrame,
-    X_test: pd.DataFrame,
-    y_train: pd.Series,
-    y_test: pd.Series
+    results_df: pd.DataFrame
 ) -> Tuple[pd.DataFrame, pd.DataFrame, str]:
-    updated_results_df = train_all_models_core(X_train, X_test, y_train, y_test)
-    registered_model_name, version = register_best_model(updated_results_df)
+    registration_result = register_best_model(results_df)
+    registered_model_name = registration_result["model_name"]
     comparison_df = compare_models_mlflow("seoul-bike-sharing")
-    save_results_to_s3(updated_results_df, comparison_df)
-    
-    return updated_results_df, comparison_df, registered_model_name
+    save_results_to_s3(results_df, comparison_df)
+
+    return results_df, comparison_df, registered_model_name
 
 def create_training_report_core(
     config: Dict[str, Any],
@@ -233,7 +229,7 @@ def save_model_to_s3(model, model_name, scaler=None):
     
     try:
         s3_key = f"models/{model_name.lower().replace(' ', '_')}/model.pkl"
-        from aws_utils import upload_to_s3
+        from ..utils.aws_utils import upload_to_s3
         upload_to_s3(model_file, s3_key)
         logging.info(f"Model uploaded to S3: {s3_key}")
     except Exception as e:
@@ -247,7 +243,7 @@ def save_model_to_s3(model, model_name, scaler=None):
         
         try:
             scaler_s3_key = f"models/{model_name.lower().replace(' ', '_')}/scaler.pkl"
-            from aws_utils import upload_to_s3
+            from ..utils.aws_utils import upload_to_s3
             upload_to_s3(scaler_file, scaler_s3_key)
             logging.info(f"Scaler uploaded to S3: {scaler_s3_key}")
         except Exception as e:
@@ -276,7 +272,7 @@ def handle_feature_importance(model, X_train, model_name):
     mlflow.log_artifact(importance_csv, artifact_path="analysis")
     
     s3_key = f"models/{model_name.lower().replace(' ', '_')}/feature_importance.csv"
-    from aws_utils import upload_to_s3
+    from ..utils.aws_utils import upload_to_s3
     upload_to_s3(importance_csv, s3_key)
     os.remove(importance_csv)
     
@@ -370,7 +366,7 @@ def evaluate_single_model(model, X_train, X_test, y_train, y_test, model_name, s
         
         if log_model:
             # Use new consistent registration approach
-            from mlflow_utils import register_model_with_s3_tracking
+            from ..utils.mlflow_utils import register_model_with_s3_tracking
             
             # Prepare additional artifacts
             additional_artifacts = {}
@@ -414,16 +410,16 @@ def main_training_pipeline() -> Dict[str, Any]:
     X_train, X_val, X_test, y_train, y_val, y_test = prepare_data_core()
     
     results_df = train_all_models_core(X_train, X_test, y_train, y_test)
-    best_model_name = results_df.loc[results_df['Test_R2'].idxmax(), 'Model']
-    
-    perform_hyperparameter_tuning_core(best_model_name, X_train, y_train, X_val, y_val, X_test, y_test)
-    
+    best_model_name = results_df.loc[results_df['test_r2'].idxmax(), 'model_name']
+
+    tuning_result = perform_hyperparameter_tuning_core(best_model_name, X_train, y_train, X_val, y_val, X_test, y_test)
+
     updated_results_df, comparison_df, registered_model_name = register_and_save_best_model_core(
-        results_df, X_train, X_test, y_train, y_test
+        results_df
     )
-    
-    best_r2 = updated_results_df['Test_R2'].max()
-    best_rmse = updated_results_df.loc[updated_results_df['Test_R2'].idxmax(), 'Test_RMSE']
+
+    best_r2 = updated_results_df['test_r2'].max()
+    best_rmse = updated_results_df.loc[updated_results_df['test_r2'].idxmax(), 'test_rmse']
     
     print(f"Best Model: {best_model_name} (R² = {best_r2:.4f}, RMSE = {best_rmse:.2f})")
     

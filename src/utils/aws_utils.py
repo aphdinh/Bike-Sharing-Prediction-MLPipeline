@@ -124,9 +124,9 @@ def list_available_models_in_s3():
 def save_results_to_s3(results_df, comparison_df=None):
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     
-    best_model_idx = results_df['Test_R2'].idxmax()
+    best_model_idx = results_df['test_r2'].idxmax()
     best_model_info = results_df.iloc[best_model_idx]
-    best_model_name = best_model_info['Model']
+    best_model_name = best_model_info['model_name']
     
     results_file = f"training_results_{timestamp}.csv"
     results_df.to_csv(results_file, index=False)
@@ -145,12 +145,12 @@ def save_results_to_s3(results_df, comparison_df=None):
         's3_bucket': S3_BUCKET_NAME,
         'total_models_trained': len(results_df),
         'best_model': best_model_name,
-        'best_r2_score': results_df['Test_R2'].max(),
-        'best_rmse_score': best_model_info['Test_RMSE'],
-        'best_mae_score': best_model_info['Test_MAE'],
-        'average_r2_score': results_df['Test_R2'].mean(),
-        'average_rmse_score': results_df['Test_RMSE'].mean(),
-        'model_rankings': results_df.sort_values('Test_R2', ascending=False)[['Model', 'Test_R2', 'Test_RMSE']].to_dict('records')
+        'best_r2_score': results_df['test_r2'].max(),
+        'best_rmse_score': best_model_info['test_rmse'],
+        'best_mae_score': best_model_info['test_mae'],
+        'average_r2_score': results_df['test_r2'].mean(),
+        'average_rmse_score': results_df['test_rmse'].mean(),
+        'model_rankings': results_df.sort_values('test_r2', ascending=False)[['model_name', 'test_r2', 'test_rmse']].to_dict('records')
     }
     
     summary_file = f"training_summary_{timestamp}.json"
@@ -164,13 +164,13 @@ def save_results_to_s3(results_df, comparison_df=None):
         'best_model_path': f"models/{best_model_name.lower().replace(' ', '_')}/model.pkl",
         'best_scaler_path': f"models/{best_model_name.lower().replace(' ', '_')}/scaler.pkl",
         'performance_metrics': {
-            'test_r2': best_model_info['Test_R2'],
-            'test_rmse': best_model_info['Test_RMSE'],
-            'test_mae': best_model_info['Test_MAE'],
-            'test_mape': best_model_info['Test_MAPE']
+            'test_r2': best_model_info['test_r2'],
+            'test_rmse': best_model_info['test_rmse'],
+            'test_mae': best_model_info['test_mae'],
+            'test_mape': best_model_info.get('test_mape', None)
         },
         'timestamp': timestamp,
-        'training_run_id': best_model_info.get('Run_ID', 'unknown')
+        'training_run_id': best_model_info.get('run_id', 'unknown')
     }
     
     best_model_file = "best_model_info.json"
@@ -180,7 +180,7 @@ def save_results_to_s3(results_df, comparison_df=None):
     os.remove(best_model_file)
     
     logging.info(f"Results saved to S3: s3://{S3_BUCKET_NAME}/results/")
-    logging.info(f"Best model: {best_model_name} (R²: {best_model_info['Test_R2']:.4f}, RMSE: {best_model_info['Test_RMSE']:.2f})")
+    logging.info(f"Best model: {best_model_name} (R²: {best_model_info['test_r2']:.4f}, RMSE: {best_model_info['test_rmse']:.2f})")
 
 def check_s3_model_completeness():
     if not download_from_s3("best_model_info.json", "temp_best_model_info.json"):

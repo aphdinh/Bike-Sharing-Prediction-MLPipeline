@@ -28,12 +28,12 @@ setup:
 # Train models
 train:
 	@echo "Training models..."
-	python src/training/train.py core
+	python -m src.training.train core
 
 # Train with Prefect
 train-prefect:
 	@echo "Training with Prefect orchestration..."
-	python src/training/train.py prefect
+	python -m src.training.train prefect
 
 # Run basic tests
 test:

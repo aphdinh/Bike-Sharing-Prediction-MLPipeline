@@ -149,16 +149,11 @@ def hyperparameter_tuning_with_mlflow(X_train, y_train, model_name):
         mlflow.log_params(random_search.best_params_)
         
         save_cv_results(random_search, mlflow)
-        
+
         status(f"Best {model_name} params: {random_search.best_params_}")
         status(f"Best CV score: {-random_search.best_score_:.4f}")
-        
-        return {
-            'best_params': random_search.best_params_,
-            'best_score': -random_search.best_score_,
-            'cv_results': random_search.cv_results_,
-            'elapsed_time': elapsed_time
-        }
+
+        return random_search.best_estimator_
 
 def get_lightgbm_search_space():
     return {

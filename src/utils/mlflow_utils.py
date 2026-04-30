@@ -206,10 +206,10 @@ def register_best_model(results_df):
     client = MlflowClient()
     
     # Find the best model based on R² score
-    best_info = results_df.iloc[results_df['Test_R2'].idxmax()]
-    best_r2 = best_info['Test_R2']
-    best_run_id = best_info['Run_ID']
-    best_name = best_info['Model']
+    best_info = results_df.iloc[results_df['test_r2'].idxmax()]
+    best_r2 = best_info['test_r2']
+    best_run_id = best_info['run_id']
+    best_name = best_info['model_name']
     
     status(f"Registering best model: {best_name} (R²: {best_r2:.4f})")
     
@@ -665,13 +665,13 @@ def compare_models_mlflow(experiment_name):
     for run in runs:
         if 'test_r2' in run.data.metrics:
             comparison_data.append({
-                'Run_ID': run.info.run_id,
-                'Model': run.data.params.get('model_type', 'Unknown'),
-                'Test_R2': run.data.metrics.get('test_r2', 0),
-                'Test_RMSE': run.data.metrics.get('test_rmse', float('inf')),
-                'Test_MAE': run.data.metrics.get('test_mae', float('inf')),
-                'Overfitting_Score': run.data.metrics.get('overfitting_score', 0),
-                'Start_Time': run.info.start_time
+                'run_id': run.info.run_id,
+                'model_name': run.data.params.get('model_type', 'Unknown'),
+                'test_r2': run.data.metrics.get('test_r2', 0),
+                'test_rmse': run.data.metrics.get('test_rmse', float('inf')),
+                'test_mae': run.data.metrics.get('test_mae', float('inf')),
+                'overfitting_score': run.data.metrics.get('overfitting_score', 0),
+                'start_time': run.info.start_time
             })
     
     comparison_df = pd.DataFrame(comparison_data)

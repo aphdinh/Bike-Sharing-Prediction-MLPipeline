@@ -123,8 +123,8 @@ def train_single_model(
         )
         
         logger.info(f"{model_name} training completed successfully")
-        logger.info(f"  Test R²: {result['Test_R2']:.4f}")
-        logger.info(f"  Test RMSE: {result['Test_RMSE']:.4f}")
+        logger.info(f"  Test R²: {result['test_r2']:.4f}")
+        logger.info(f"  Test RMSE: {result['test_rmse']:.4f}")
         
         return result
         
@@ -189,8 +189,8 @@ def perform_hyperparameter_optimization(
         )
         if result:
             logger.info(f"Optimization complete:")
-            logger.info(f"  Final test RMSE: {result['Test_RMSE']:.4f}")
-            logger.info(f"  Final test R²: {result['Test_R2']:.4f}")
+            logger.info(f"  Final test RMSE: {result['test_rmse']:.4f}")
+            logger.info(f"  Final test R²: {result['test_r2']:.4f}")
         return result
         
     except Exception as e:
@@ -203,15 +203,11 @@ def perform_hyperparameter_optimization(
     tags=["model-registry", "persistence"]
 )
 def register_and_save_best_model(
-    results_df: pd.DataFrame,
-    X_train: pd.DataFrame,
-    X_test: pd.DataFrame,
-    y_train: pd.Series,
-    y_test: pd.Series
+    results_df: pd.DataFrame
 ) -> Tuple[pd.DataFrame, pd.DataFrame, str]:
     logger = get_run_logger()
     logger.info("Registering best model and saving results...")
-    result = register_and_save_best_model_core(results_df, X_train, X_test, y_train, y_test)
+    result = register_and_save_best_model_core(results_df)
     logger.info(f"Best model '{result[2]}' registered successfully")
     return result
 
@@ -275,7 +271,7 @@ def ml_training_pipeline() -> Dict[str, Any]:
     
     logger.info("Training multiple models...")
     results_df = train_all_models(X_train, X_test, y_train, y_test)
-    best_model_name = results_df.loc[results_df['Test_R2'].idxmax(), 'Model']
+    best_model_name = results_df.loc[results_df['test_r2'].idxmax(), 'model_name']
     logger.info(f"Best performing model: {best_model_name}")
     logger.info("Performing hyperparameter optimization...")
     tuning_result = perform_hyperparameter_optimization(
@@ -283,15 +279,15 @@ def ml_training_pipeline() -> Dict[str, Any]:
     )
     logger.info("Registering best model and saving results...")
     updated_results_df, comparison_df, registered_model_name = register_and_save_best_model(
-        results_df, X_train, X_test, y_train, y_test
+        results_df
     )
     
     logger.info("Creating training report...")
     report = create_training_report(
         config, updated_results_df, comparison_df, best_model_name, tuning_result
     )
-    best_r2 = updated_results_df['Test_R2'].max()
-    best_rmse = updated_results_df.loc[updated_results_df['Test_R2'].idxmax(), 'Test_RMSE']
+    best_r2 = updated_results_df['test_r2'].max()
+    best_rmse = updated_results_df.loc[updated_results_df['test_r2'].idxmax(), 'test_rmse']
     
     logger.info(f"Best Model Performance: R² = {best_r2:.4f}, RMSE = {best_rmse:.2f}")
     logger.info(f"MLflow UI: {config['mlflow_tracking_uri']}")

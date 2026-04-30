@@ -1,11 +1,10 @@
 import sys
 import os
 from typing import Dict, Any
-from .prefect_orchestrator import ml_training_pipeline, create_deployment
-from .train_core import main_training_pipeline
 
 def run_with_prefect() -> Dict[str, Any]:
     try:
+        from .prefect_orchestrator import ml_training_pipeline
         print("Running with Prefect orchestration...")
         return ml_training_pipeline()
     except ImportError as e:
@@ -15,6 +14,7 @@ def run_with_prefect() -> Dict[str, Any]:
 
 def run_core_training() -> Dict[str, Any]:
     try:
+        from .train_core import main_training_pipeline
         print("Running core training pipeline...")
         return main_training_pipeline()
     except ImportError as e:
@@ -23,6 +23,7 @@ def run_core_training() -> Dict[str, Any]:
 
 def create_prefect_deployment():
     try:
+        from .prefect_orchestrator import create_deployment
         deployment = create_deployment()
         deployment.apply()
         print("Deployment created successfully!")
