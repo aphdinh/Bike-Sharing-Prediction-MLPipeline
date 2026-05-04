@@ -90,12 +90,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Seoul Bike Sharing Prediction API...")
     try:
         initialize_monitoring()
-        monitor = get_monitor()
-        if monitor and os.path.exists("data/SeoulBikeData.csv"):
-            sample = feature_engineering(load_data("data/SeoulBikeData.csv")).sample(100, random_state=42)
-            sample = sample.drop(columns=['date', 'day', 'day_name'], errors='ignore')
-            monitor.update_current_data(sample)
-            logger.info("Monitoring current data loaded")
+        logger.info("Monitoring initialized")
     except Exception as e:
         logger.warning(f"Failed to initialize monitoring: {e}")
     if load_production_model():
@@ -130,9 +125,23 @@ def ensure_model_loaded():
 
 
 def run_prediction(request_data: PredictionRequest) -> int:
-    X = preprocess_data(pd.DataFrame([request_data.dict()]))
+    df = pd.DataFrame([request_data.dict()])
+    X = preprocess_data(df)
     X_input = scaler.transform(X) if scaler is not None else X
-    return max(0, int(round(model.predict(X_input)[0])))
+    prediction = max(0, int(round(model.predict(X_input)[0])))
+
+    try:
+        monitor = get_monitor()
+        if monitor:
+            row = feature_engineering(df).drop(columns=['date', 'day', 'day_name'], errors='ignore')
+            existing = monitor.current_data
+            monitor.update_current_data(
+                pd.concat([existing, row], ignore_index=True) if existing is not None else row
+            )
+    except Exception:
+        pass
+
+    return prediction
 
 
 def get_model_info() -> Dict[str, Any]:

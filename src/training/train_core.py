@@ -47,14 +47,22 @@ def setup_mlflow_core() -> str:
     experiment_id = setup_mlflow()
     return experiment_id
 
-def prepare_data_core() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, 
+def prepare_data_core() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame,
                                 pd.Series, pd.Series, pd.Series]:
     df = load_data()
-    
+
     if df.empty:
         raise ValueError("Loaded dataset is empty")
-    
+
     df_features = feature_engineering(df)
+
+    os.makedirs('data', exist_ok=True)
+    reference_sample = df_features.drop(columns=['date', 'day', 'day_name'], errors='ignore')
+    reference_sample.sample(min(200, len(reference_sample)), random_state=42).to_csv(
+        'data/reference_data.csv', index=False
+    )
+    logging.info("Saved reference data for monitoring")
+
     X, y, feature_names = prepare_features(df_features)
     
     X_temp, X_test, y_temp, y_test = train_test_split(
