@@ -214,7 +214,7 @@ async def get_monitoring_status():
         return {"status": "success", "monitoring_initialized": monitor is not None,
                 "reference_data_loaded": monitor.reference_data is not None if monitor else False,
                 "current_data_loaded": monitor.current_data is not None if monitor else False,
-                "reports_directory": monitor.config.reports_dir if monitor else None}
+                "reports_directory": "reports/monitoring"}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
