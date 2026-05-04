@@ -9,7 +9,7 @@ from typing import List, Dict, Any
 from datetime import datetime
 from contextlib import asynccontextmanager
 
-from ..data.data_processing import preprocess_data
+from ..data.data_processing import preprocess_data, load_data, feature_engineering
 from ..utils.mlflow_utils import load_production_model_with_tracking, load_model_with_s3_verification
 from ..utils.aws_utils import load_best_model_from_s3, aws_available, S3_BUCKET_NAME, check_s3_model_completeness
 from ..monitoring.monitoring import initialize_monitoring, get_monitor
@@ -90,7 +90,8 @@ async def lifespan(app: FastAPI):
         initialize_monitoring()
         monitor = get_monitor()
         if monitor and os.path.exists("data/SeoulBikeData.csv"):
-            sample = pd.read_csv("data/SeoulBikeData.csv", encoding='latin1').sample(100, random_state=42)
+            sample = feature_engineering(load_data("data/SeoulBikeData.csv")).sample(100, random_state=42)
+            sample = sample.drop(columns=['date', 'day', 'day_name'], errors='ignore')
             monitor.update_current_data(sample)
             logger.info("Monitoring current data loaded")
     except Exception as e:
