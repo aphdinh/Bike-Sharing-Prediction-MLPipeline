@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+import os
 import pandas as pd
 import time
 import logging
@@ -87,6 +88,11 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Seoul Bike Sharing Prediction API...")
     try:
         initialize_monitoring()
+        monitor = get_monitor()
+        if monitor and os.path.exists("data/SeoulBikeData.csv"):
+            sample = pd.read_csv("data/SeoulBikeData.csv", encoding='latin1').sample(100, random_state=42)
+            monitor.update_current_data(sample)
+            logger.info("Monitoring current data loaded")
     except Exception as e:
         logger.warning(f"Failed to initialize monitoring: {e}")
     if load_production_model():
