@@ -64,23 +64,32 @@ def load_production_model():
     global model, scaler, model_metadata, verification_status, model_loaded_at
 
     if aws_available:
-        model, scaler, model_metadata = load_best_model_from_s3()
+        try:
+            model, scaler, model_metadata = load_best_model_from_s3()
+            if model is not None:
+                verification_status = "s3_loaded"
+                model_loaded_at = datetime.now().isoformat()
+                return True
+        except Exception as e:
+            logger.warning(f"S3 model load failed: {e}")
+
+    try:
+        model, model_info, s3_info, verification_status = load_model_with_s3_verification("production")
         if model is not None:
-            verification_status = "s3_loaded"
+            model_metadata = {"model_info": model_info, "s3_info": s3_info, "verification_status": verification_status}
             model_loaded_at = datetime.now().isoformat()
             return True
+    except Exception as e:
+        logger.warning(f"MLflow S3 verification load failed: {e}")
 
-    model, model_info, s3_info, verification_status = load_model_with_s3_verification("production")
-    if model is not None:
-        model_metadata = {"model_info": model_info, "s3_info": s3_info, "verification_status": verification_status}
-        model_loaded_at = datetime.now().isoformat()
-        return True
-
-    model, model_info, s3_info = load_production_model_with_tracking("production")
-    if model is not None:
-        model_metadata = {"model_info": model_info, "s3_info": s3_info, "verification_status": "mlflow_only"}
-        model_loaded_at = datetime.now().isoformat()
-        return True
+    try:
+        model, model_info, s3_info = load_production_model_with_tracking("production")
+        if model is not None:
+            model_metadata = {"model_info": model_info, "s3_info": s3_info, "verification_status": "mlflow_only"}
+            model_loaded_at = datetime.now().isoformat()
+            return True
+    except Exception as e:
+        logger.warning(f"MLflow tracking load failed: {e}")
 
     return False
 
