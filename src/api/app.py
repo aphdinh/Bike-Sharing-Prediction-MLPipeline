@@ -2,6 +2,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import os
+import json
+import numpy as np
 import pandas as pd
 import time
 import logging
@@ -118,6 +120,10 @@ app.add_middleware(
 )
 
 
+def serialize(obj):
+    return json.loads(json.dumps(obj, default=lambda x: int(x) if isinstance(x, np.integer) else float(x) if isinstance(x, np.floating) else str(x)))
+
+
 def ensure_model_loaded():
     if model is None and not load_production_model():
         raise HTTPException(status_code=503, detail="Model not available.")
@@ -177,7 +183,7 @@ async def check_s3_model_completeness_endpoint():
 @app.post("/monitoring/data-drift")
 async def generate_data_drift_report():
     try:
-        return {"status": "success", "report": get_monitor().check_data_drift()}
+        return {"status": "success", "report": serialize(get_monitor().check_data_drift())}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -185,7 +191,7 @@ async def generate_data_drift_report():
 @app.post("/monitoring/data-quality")
 async def generate_data_quality_report():
     try:
-        return {"status": "success", "report": get_monitor().check_data_quality()}
+        return {"status": "success", "report": serialize(get_monitor().check_data_quality())}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -193,7 +199,7 @@ async def generate_data_quality_report():
 @app.post("/monitoring/comprehensive")
 async def generate_comprehensive_monitoring_report():
     try:
-        return {"status": "success", "report": get_monitor().run_monitoring()}
+        return {"status": "success", "report": serialize(get_monitor().run_monitoring())}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
