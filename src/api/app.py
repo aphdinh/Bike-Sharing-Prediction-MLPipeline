@@ -308,6 +308,15 @@ async def get_monitoring_status():
         logger.error(f"Error getting monitoring status: {e}")
         return {"status": "error", "error": str(e)}
 
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "model_loaded": model is not None,
+        "model_loaded_at": model_loaded_at,
+        "verification_status": verification_status
+    }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000) 

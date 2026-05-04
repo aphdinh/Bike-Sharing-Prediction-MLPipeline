@@ -21,8 +21,8 @@ install:
 # Setup environment
 setup:
 	@echo "Setting up environment..."
-	chmod +x scripts/setup/server-start.sh
-	./scripts/setup/server-start.sh
+	chmod +x scripts/server-start.sh
+	./scripts/server-start.sh
 	@echo "Environment setup complete!"
 
 # Train models
@@ -65,7 +65,7 @@ api:
 # Run monitoring
 monitor:
 	@echo "Running monitoring..."
-	python src/monitoring/integration_example.py
+	python -m src.monitoring.integration
 
 # Deploy infrastructure
 deploy-infra:
