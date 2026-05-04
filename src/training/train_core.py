@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend to avoid GUI issues
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.model_selection import train_test_split
@@ -14,12 +14,13 @@ from datetime import datetime
 import mlflow
 from typing import Dict, List, Tuple, Optional, Any
 
-from ..utils.aws_utils import aws_available, save_results_to_s3
+from ..utils.aws_utils import aws_available, save_results_to_s3, upload_to_s3
 from ..data.data_processing import load_data, feature_engineering, prepare_features
 from ..models.models import get_models, create_model, hyperparameter_comparison
 from ..utils.mlflow_utils import (
     setup_mlflow, log_metrics, calc_metrics, create_prediction_plots,
-    register_best_model, get_best_model_info, compare_models_mlflow
+    register_best_model, get_best_model_info, compare_models_mlflow,
+    register_model_with_s3_tracking
 )
 
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
@@ -223,39 +224,19 @@ def train_and_predict(model, X_train, X_test, y_train, scaler):
     return X_train_p, X_test_p, y_pred_train, y_pred_test
 
 def save_model_to_s3(model, model_name, scaler=None):
-    model_file = f"model_{model_name.lower().replace(' ', '_').replace('-', '_')}.pkl"
+    slug = model_name.lower().replace(' ', '_').replace('-', '_')
+    model_file = f"model_{slug}.pkl"
     with open(model_file, "wb") as f:
         pickle.dump(model, f)
-    
-    try:
-        s3_key = f"models/{model_name.lower().replace(' ', '_')}/model.pkl"
-        from ..utils.aws_utils import upload_to_s3
-        upload_to_s3(model_file, s3_key)
-        logging.info(f"Model uploaded to S3: {s3_key}")
-    except Exception as e:
-        logging.error(f"Failed to upload model to S3: {e}")
-    
-    # Save scaler if provided
+    upload_to_s3(model_file, f"models/{model_name.lower().replace(' ', '_')}/model.pkl")
+    os.remove(model_file)
+
     if scaler is not None:
-        scaler_file = f"scaler_{model_name.lower().replace(' ', '_').replace('-', '_')}.pkl"
+        scaler_file = f"scaler_{slug}.pkl"
         with open(scaler_file, "wb") as f:
             pickle.dump(scaler, f)
-        
-        try:
-            scaler_s3_key = f"models/{model_name.lower().replace(' ', '_')}/scaler.pkl"
-            from ..utils.aws_utils import upload_to_s3
-            upload_to_s3(scaler_file, scaler_s3_key)
-            logging.info(f"Scaler uploaded to S3: {scaler_s3_key}")
-        except Exception as e:
-            logging.error(f"Failed to upload scaler to S3: {e}")
-        
-        # Clean up local scaler file
-        if os.path.exists(scaler_file):
-            os.remove(scaler_file)
-    
-    # Clean up local model file
-    if os.path.exists(model_file):
-        os.remove(model_file)
+        upload_to_s3(scaler_file, f"models/{model_name.lower().replace(' ', '_')}/scaler.pkl")
+        os.remove(scaler_file)
 
 def handle_feature_importance(model, X_train, model_name):
     if not hasattr(model, 'feature_importances_'):
@@ -271,46 +252,21 @@ def handle_feature_importance(model, X_train, model_name):
     importance_df.to_csv(importance_csv, index=False)
     mlflow.log_artifact(importance_csv, artifact_path="analysis")
     
-    s3_key = f"models/{model_name.lower().replace(' ', '_')}/feature_importance.csv"
-    from ..utils.aws_utils import upload_to_s3
-    upload_to_s3(importance_csv, s3_key)
+    upload_to_s3(importance_csv, f"models/{model_name.lower().replace(' ', '_')}/feature_importance.csv")
     os.remove(importance_csv)
-    
+
     plt.figure(figsize=(12, 8))
     sns.barplot(data=importance_df.head(20), y='feature', x='importance', palette='viridis')
     plt.title(f'Top 20 Feature Importances - {model_name}')
     plt.tight_layout()
-    
+
     importance_plot = f"feature_importance_{model_name.lower().replace(' ', '_').replace('-', '_')}.png"
     plt.savefig(importance_plot, dpi=300, bbox_inches='tight')
-    
-    try:
-        mlflow.log_artifact(importance_plot, artifact_path="plots")
-    except Exception as e:
-        pass
-    
-    try:
-        s3_key = f"models/{model_name.lower().replace(' ', '_')}/feature_importance.png"
-        upload_to_s3(importance_plot, s3_key)
-    except Exception as e:
-        pass
-    
-    # Clean up local plot file after uploading to S3
-    if os.path.exists(importance_plot):
-        os.remove(importance_plot)
-    
+    mlflow.log_artifact(importance_plot, artifact_path="plots")
+    upload_to_s3(importance_plot, f"models/{model_name.lower().replace(' ', '_')}/feature_importance.png")
+    os.remove(importance_plot)
     plt.close()
     
-
-def log_model_to_mlflow(model, X_train_p, y_pred_train, model_name):
-    from mlflow.models.signature import infer_signature
-    signature = infer_signature(X_train_p, y_pred_train)
-    mlflow.sklearn.log_model(
-        sk_model=model,
-        name="model",
-        signature=signature,
-        registered_model_name=f"seoul_bike_{model_name.lower().replace(' ', '_')}"
-    )
 
 def create_model_results(model_name, train_metrics, test_metrics, overfit, run_id): 
     def safe_value(value):
