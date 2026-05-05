@@ -254,6 +254,8 @@ def load_production_model_with_tracking(alias="production"):
 
 
 def save_model_to_s3_with_tracking(model, model_name, scaler=None):
+    """Serialize model (and optionally scaler) as pickle files and upload to S3.
+    Returns a dict of S3 keys for everything that was saved."""
     s3_artifacts = {}
     slug = model_name.lower().replace(' ', '_').replace('-', '_')
     prefix = model_name.lower().replace(' ', '_')
@@ -281,6 +283,8 @@ def save_model_to_s3_with_tracking(model, model_name, scaler=None):
 
 
 def register_model_with_s3_tracking(model, model_name, run_id, scaler=None, additional_artifacts=None):
+    """Save model to S3 and register a versioned entry in the MLflow model registry.
+    MLflow version is tagged with its S3 path so the two stores stay linked."""
     try:
         s3_artifacts = save_model_to_s3_with_tracking(model, model_name, scaler)
 
