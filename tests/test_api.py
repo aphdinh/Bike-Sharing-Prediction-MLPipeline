@@ -1,195 +1,105 @@
 import pytest
+import numpy as np
+from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 
-try:
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from pydantic import BaseModel
-except ImportError:
-    class BaseModel:
-        pass
-    
-    class FastAPI:
-        def __init__(self):
-            self.routes = []
-        
-        def get(self, path):
-            def decorator(func):
-                self.routes.append(("GET", path, func))
-                return func
-            return decorator
-        
-        def post(self, path):
-            def decorator(func):
-                self.routes.append(("POST", path, func))
-                return func
-            return decorator
-    
-    class TestClient:
-        def __init__(self, app):
-            self.app = app
-        
-        def get(self, path):
-            return MagicMock(status_code=200, json=lambda: {"status": "ok"})
-        
-        def post(self, path, json=None):
-            return MagicMock(status_code=200, json=lambda: {"result": "success"})
+
+VALID_REQUEST = {
+    "date": "15/06/2018",
+    "hour": 8,
+    "temperature_c": 20.0,
+    "humidity": 60.0,
+    "wind_speed": 2.0,
+    "visibility_10m": 1500.0,
+    "dew_point_c": 10.0,
+    "solar_radiation": 1.5,
+    "rainfall_mm": 0.0,
+    "snowfall_cm": 0.0,
+    "season": "Summer",
+    "holiday": "No Holiday",
+    "functioning_day": "Yes"
+}
 
 
-class TestAPI:
-    def test_api_creation(self):
-        app = FastAPI()
-        assert app is not None
-        assert hasattr(app, 'routes')
+@pytest.fixture
+def mock_model():
+    m = MagicMock()
+    m.predict.return_value = np.array([500])
+    return m
 
-    def test_api_client(self):
-        app = FastAPI()
-        client = TestClient(app)
-        assert client is not None
 
-    def test_health_endpoint(self):
-        app = FastAPI()
-        
-        @app.get("/health")
-        def health_check():
-            return {"status": "healthy"}
-        
-        client = TestClient(app)
+@pytest.fixture
+def client(mock_model):
+    with patch("src.api.app.load_best_model_from_s3", return_value=(mock_model, None, {})), \
+         patch("src.api.app.aws_available", True), \
+         patch("src.api.app.initialize_monitoring"):
+        from src.api.app import app
+        with TestClient(app) as c:
+            yield c
+
+
+class TestHealthEndpoint:
+    def test_health_returns_200(self, client):
         response = client.get("/health")
-        
-        assert response.status_code == 200
-        assert "status" in response.json()
-
-    def test_prediction_endpoint(self):
-        app = FastAPI()
-        
-        class PredictionRequest(BaseModel):
-            temperature_c: float
-            humidity: float
-        
-        @app.post("/predict")
-        def predict(request: PredictionRequest):
-            prediction = int(request.temperature_c * 2 + request.humidity * 0.5)
-            return {"prediction": prediction, "confidence": 0.8}
-        
-        client = TestClient(app)
-        
-        test_data = {
-            "temperature_c": 25.0,
-            "humidity": 60.0
-        }
-        
-        response = client.post("/predict", json=test_data)
-        
-        assert response.status_code in [200, 422]
-        if response.status_code == 200:
-            result = response.json()
-            assert "prediction" in result
-
-    def test_batch_prediction_endpoint(self):
-        app = FastAPI()
-        
-        class BatchRequest(BaseModel):
-            data: list
-        
-        @app.post("/predict/batch")
-        def predict_batch(request: BatchRequest):
-            predictions = []
-            for item in request.data:
-                if isinstance(item, dict) and 'temperature_c' in item:
-                    pred = int(item['temperature_c'] * 2)
-                    predictions.append(pred)
-            return {"predictions": predictions, "total": len(predictions)}
-        
-        client = TestClient(app)
-        
-        test_data = {
-            "data": [
-                {"temperature_c": 25.0, "humidity": 60.0},
-                {"temperature_c": 30.0, "humidity": 70.0}
-            ]
-        }
-        
-        response = client.post("/predict/batch", json=test_data)
-        
-        assert response.status_code in [200, 422]
-        if response.status_code == 200:
-            result = response.json()
-            assert "predictions" in result
-
-    def test_monitoring_endpoints(self):
-        """Test monitoring endpoints."""
-        app = FastAPI()
-        
-        @app.get("/monitoring/status")
-        def monitoring_status():
-            return {"status": "healthy"}
-        
-        @app.post("/monitoring/data-drift")
-        def data_drift():
-            return {"drift_detected": False}
-        
-        @app.post("/monitoring/data-quality")
-        def data_quality():
-            return {"total_rows": 100}
-        
-        client = TestClient(app)
-        
-        response = client.get("/monitoring/status")
-        assert response.status_code == 200
-        
-        response = client.post("/monitoring/data-drift")
-        assert response.status_code == 200
-        
-        response = client.post("/monitoring/data-quality")
         assert response.status_code == 200
 
-    def test_error_handling(self):
-        app = FastAPI()
-        
-        @app.get("/error")
-        def error_endpoint():
-            return {"error": "Test error", "status": "error"}
-        
-        client = TestClient(app)
-        
-        response = client.get("/error")
-        assert response.status_code == 200
-        result = response.json()
-        assert "error" in result
+    def test_health_has_required_fields(self, client):
+        data = client.get("/health").json()
+        assert "status" in data
+        assert "model_loaded" in data
 
-    def test_validation_error_handling(self):
-        app = FastAPI()
-        
-        class ValidationRequest(BaseModel):
-            required_field: str
-        
-        @app.post("/validation")
-        def validation_endpoint(request: ValidationRequest):
-            return {"message": "Valid request"}
-        
-        client = TestClient(app)
-        
-        # Test with invalid data (missing required field)
-        invalid_data = {}
-        response = client.post("/validation", json=invalid_data)
-        
+
+class TestPredictEndpoint:
+    def test_predict_returns_200(self, client):
+        response = client.post("/predict", json=VALID_REQUEST)
+        assert response.status_code == 200
+
+    def test_predict_response_shape(self, client):
+        data = client.post("/predict", json=VALID_REQUEST).json()
+        assert "prediction" in data
+        assert "confidence" in data
+        assert "processing_time_ms" in data
+
+    def test_predict_returns_non_negative(self, client):
+        data = client.post("/predict", json=VALID_REQUEST).json()
+        assert data["prediction"] >= 0
+
+    def test_predict_missing_fields_returns_422(self, client):
+        response = client.post("/predict", json={"hour": 8})
         assert response.status_code == 422
 
-    def test_simple_endpoint(self):
-        app = FastAPI()
-        
-        @app.get("/simple")
-        def simple_endpoint():
-            return {"message": "Hello World"}
-        
-        client = TestClient(app)
-        response = client.get("/simple")
-        
+    def test_predict_invalid_hour_returns_422(self, client):
+        bad_request = {**VALID_REQUEST, "hour": 99}
+        response = client.post("/predict", json=bad_request)
+        assert response.status_code == 422
+
+    def test_predict_invalid_humidity_returns_422(self, client):
+        bad_request = {**VALID_REQUEST, "humidity": 150}
+        response = client.post("/predict", json=bad_request)
+        assert response.status_code == 422
+
+
+class TestBatchPredictEndpoint:
+    def test_batch_predict_returns_200(self, client):
+        response = client.post("/predict/batch", json={"data": [VALID_REQUEST, VALID_REQUEST]})
         assert response.status_code == 200
-        result = response.json()
-        assert "message" in result
+
+    def test_batch_predict_response_shape(self, client):
+        data = client.post("/predict/batch", json={"data": [VALID_REQUEST]}).json()
+        assert "predictions" in data
+        assert len(data["predictions"]) == 1
+        assert data["predictions"][0]["status"] == "success"
+
+
+class TestMonitoringEndpoints:
+    def test_monitoring_status_returns_200(self, client):
+        response = client.get("/monitoring/status")
+        assert response.status_code == 200
+
+    def test_monitoring_status_fields(self, client):
+        data = client.get("/monitoring/status").json()
+        assert "monitoring_initialized" in data
 
 
 if __name__ == "__main__":
-    pytest.main([__file__])
+    pytest.main([__file__, "-v"])
