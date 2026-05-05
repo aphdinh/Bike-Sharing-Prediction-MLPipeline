@@ -2,18 +2,15 @@ import mlflow
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
 import json
 import os
 import pickle
 import logging
 import boto3
 from datetime import datetime
-from typing import Dict, List, Optional, Any
 
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from mlflow.tracking import MlflowClient
-from mlflow.models.signature import infer_signature
 
 from .aws_utils import upload_to_s3, AWS_REGION, S3_BUCKET_NAME, aws_available
 
@@ -22,8 +19,10 @@ EXPERIMENT_NAME = os.getenv('MLFLOW_EXPERIMENT_NAME', "seoul-bike-sharing")
 MLFLOW_ARTIFACT_URI = os.getenv('MLFLOW_ARTIFACT_URI')
 
 
-def status(msg):
-    logging.info(msg)
+def _create_experiment(name):
+    if MLFLOW_ARTIFACT_URI:
+        return mlflow.create_experiment(name, artifact_location=MLFLOW_ARTIFACT_URI)
+    return mlflow.create_experiment(name)
 
 
 def setup_mlflow():
@@ -33,22 +32,21 @@ def setup_mlflow():
     try:
         experiment = mlflow.get_experiment_by_name(EXPERIMENT_NAME)
         if experiment is None:
-            artifact_loc = MLFLOW_ARTIFACT_URI
-            experiment_id = mlflow.create_experiment(EXPERIMENT_NAME, artifact_location=artifact_loc) if artifact_loc else mlflow.create_experiment(EXPERIMENT_NAME)
+            experiment_id = _create_experiment(EXPERIMENT_NAME)
         elif experiment.lifecycle_stage == "deleted":
             try:
                 MlflowClient().restore_experiment(experiment.experiment_id)
                 experiment_id = experiment.experiment_id
             except Exception:
-                experiment_id = mlflow.create_experiment(EXPERIMENT_NAME, artifact_location=MLFLOW_ARTIFACT_URI) if MLFLOW_ARTIFACT_URI else mlflow.create_experiment(EXPERIMENT_NAME)
+                experiment_id = _create_experiment(EXPERIMENT_NAME)
         else:
             experiment_id = experiment.experiment_id
     except mlflow.exceptions.MlflowException:
         try:
-            experiment_id = mlflow.create_experiment(EXPERIMENT_NAME, artifact_location=MLFLOW_ARTIFACT_URI) if MLFLOW_ARTIFACT_URI else mlflow.create_experiment(EXPERIMENT_NAME)
+            experiment_id = _create_experiment(EXPERIMENT_NAME)
         except Exception:
             fallback = f"{EXPERIMENT_NAME}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            experiment_id = mlflow.create_experiment(fallback, artifact_location=MLFLOW_ARTIFACT_URI) if MLFLOW_ARTIFACT_URI else mlflow.create_experiment(fallback)
+            experiment_id = _create_experiment(fallback)
             EXPERIMENT_NAME = fallback
 
     mlflow.set_experiment(EXPERIMENT_NAME)
@@ -79,10 +77,11 @@ def calc_metrics(y_true, y_pred):
 
 def create_prediction_plots(y_test, y_pred, model_name):
     fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+    slug = model_name.lower().replace(' ', '_').replace('-', '_')
 
     axes[0, 0].scatter(y_test, y_pred, alpha=0.6, color='blue', s=10)
     axes[0, 0].plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', lw=2)
-    axes[0, 0].set(xlabel='Actual Bike Count', ylabel='Predicted Bike Count', title=f'{model_name}: Predicted vs Actual')
+    axes[0, 0].set(xlabel='Actual', ylabel='Predicted', title=f'{model_name}: Predicted vs Actual')
     r2 = r2_score(y_test, y_pred) if np.isfinite(r2_score(y_test, y_pred)) else 0.0
     axes[0, 0].text(0.05, 0.95, f'R² = {r2:.3f}', transform=axes[0, 0].transAxes,
                     bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
@@ -90,25 +89,38 @@ def create_prediction_plots(y_test, y_pred, model_name):
     residuals = y_test - y_pred
     axes[0, 1].scatter(y_pred, residuals, alpha=0.6, color='green', s=10)
     axes[0, 1].axhline(y=0, color='red', linestyle='--')
-    axes[0, 1].set(xlabel='Predicted Bike Count', ylabel='Residuals', title=f'{model_name}: Residuals Plot')
+    axes[0, 1].set(xlabel='Predicted', ylabel='Residuals', title=f'{model_name}: Residuals')
 
     axes[1, 0].hist(residuals, bins=50, alpha=0.7, color='purple', edgecolor='black')
     axes[1, 0].axvline(x=0, color='red', linestyle='--')
-    axes[1, 0].set(xlabel='Residuals', ylabel='Frequency', title='Distribution of Residuals')
+    axes[1, 0].set(xlabel='Residuals', ylabel='Frequency', title='Residual Distribution')
 
     bins = pd.cut(y_test, bins=10)
     error_by_range = pd.DataFrame({'range': bins, 'error': np.abs(residuals)}).groupby('range')['error'].mean()
     axes[1, 1].bar(range(len(error_by_range)), error_by_range.values, alpha=0.7, color='orange')
-    axes[1, 1].set(xlabel='Actual Value Ranges', ylabel='Mean Absolute Error', title='Prediction Error by Value Range')
+    axes[1, 1].set(xlabel='Actual Value Ranges', ylabel='MAE', title='Error by Value Range')
     axes[1, 1].tick_params(axis='x', rotation=45)
 
     plt.tight_layout()
-    plot_file = f"prediction_analysis_{model_name.lower().replace(' ', '_').replace('-', '_')}.png"
+    plot_file = f"prediction_analysis_{slug}.png"
     plt.savefig(plot_file, dpi=300, bbox_inches='tight')
     mlflow.log_artifact(plot_file, artifact_path="plots")
     upload_to_s3(plot_file, f"models/{model_name.lower().replace(' ', '_')}/prediction_analysis.png")
     os.remove(plot_file)
     plt.close()
+
+
+def _get_best_tuned_model(client, best_r2, best_run_id, best_name):
+    tuned_models = [m for m in client.search_registered_models() if "tuned" in m.name.lower()]
+    for model in tuned_models:
+        for v in client.search_model_versions(f"name='{model.name}'"):
+            try:
+                r2 = client.get_run(v.run_id).data.metrics.get('test_r2') or 0
+                if r2 > best_r2:
+                    best_r2, best_run_id, best_name = r2, v.run_id, model.name
+            except Exception:
+                continue
+    return best_r2, best_run_id, best_name
 
 
 def register_best_model(results_df):
@@ -117,15 +129,7 @@ def register_best_model(results_df):
     best_r2, best_run_id, best_name = best['test_r2'], best['run_id'], best['model_name']
 
     try:
-        for model in client.search_registered_models():
-            if "tuned" in model.name.lower():
-                for v in client.search_model_versions(f"name='{model.name}'"):
-                    try:
-                        r2 = client.get_run(v.run_id).data.metrics.get('test_r2') or 0
-                        if r2 > best_r2:
-                            best_r2, best_run_id, best_name = r2, v.run_id, model.name
-                    except Exception:
-                        continue
+        best_r2, best_run_id, best_name = _get_best_tuned_model(client, best_r2, best_run_id, best_name)
     except Exception:
         pass
 
@@ -192,14 +196,9 @@ def get_best_model_info():
     if info:
         return {
             "mlflow_info": {k: info[k] for k in ["model_name", "version", "stage", "description", "run_id"]},
-            "model_metadata": {
-                "best_model_name": info["tags"].get("best_model_name", "Unknown"),
-                "test_r2_score": info["tags"].get("test_r2_score"),
-                "test_rmse_score": info["tags"].get("test_rmse_score"),
-                "test_mae_score": info["tags"].get("test_mae_score"),
-                "is_hyperparameter_tuned": info["tags"].get("is_hyperparameter_tuned"),
-                "timestamp": info["tags"].get("timestamp"),
-            }
+            "model_metadata": {k: info["tags"].get(k) for k in
+                               ["best_model_name", "test_r2_score", "test_rmse_score",
+                                "test_mae_score", "is_hyperparameter_tuned", "timestamp"]}
         }
 
     try:
@@ -208,8 +207,8 @@ def get_best_model_info():
             "mlflow_info": {"model_name": model_name, "version": v.version, "stage": "Production",
                             "description": v.description, "run_id": v.run_id},
             "model_metadata": {k: v.tags.get(k) for k in
-                               ["best_model_name", "test_r2_score", "test_rmse_score", "test_mae_score",
-                                "is_hyperparameter_tuned", "timestamp"]}
+                               ["best_model_name", "test_r2_score", "test_rmse_score",
+                                "test_mae_score", "is_hyperparameter_tuned", "timestamp"]}
         }
     except IndexError:
         return None
@@ -262,14 +261,16 @@ def load_production_model_with_tracking(alias="production"):
                       "description": v.description, "run_id": v.run_id, "alias": alias, "tags": v.tags}
         return model, model_info, get_s3_tracking_info(v.run_id, model_name, v.version)
     except Exception:
-        try:
-            v = client.get_latest_versions(model_name, stages=["Production"])[0]
-            model = mlflow.sklearn.load_model(f"models:/{model_name}/Production")
-            model_info = {"model_name": model_name, "version": v.version, "stage": "Production",
-                          "description": v.description, "run_id": v.run_id, "alias": "Production (fallback)", "tags": v.tags}
-            return model, model_info, get_s3_tracking_info(v.run_id, model_name, v.version)
-        except IndexError:
-            return None, None, None
+        pass
+
+    try:
+        v = client.get_latest_versions(model_name, stages=["Production"])[0]
+        model = mlflow.sklearn.load_model(f"models:/{model_name}/Production")
+        model_info = {"model_name": model_name, "version": v.version, "stage": "Production",
+                      "description": v.description, "run_id": v.run_id, "alias": "Production (fallback)", "tags": v.tags}
+        return model, model_info, get_s3_tracking_info(v.run_id, model_name, v.version)
+    except (IndexError, Exception):
+        return None, None, None
 
 
 def artifact_exists_in_s3(s3_key):
@@ -294,27 +295,27 @@ def load_model_with_s3_verification(model_name, alias="production"):
 
 def log_s3_artifacts_to_mlflow(run_id, model_name, s3_artifacts):
     try:
-        client = MlflowClient()
-        metadata = {"s3_bucket": S3_BUCKET_NAME,
-                    "s3_prefix": f"models/{model_name.lower().replace(' ', '_')}/",
+        slug = model_name.lower().replace(' ', '_')
+        metadata = {"s3_bucket": S3_BUCKET_NAME, "s3_prefix": f"models/{slug}/",
                     "artifacts": s3_artifacts, "timestamp": datetime.now().isoformat()}
-        fname = f"s3_artifacts_{model_name.lower().replace(' ', '_')}.json"
+        fname = f"s3_artifacts_{slug}.json"
         with open(fname, 'w') as f:
             json.dump(metadata, f, indent=2)
-        client.log_artifact(run_id, fname, artifact_path="s3_tracking")
+        MlflowClient().log_artifact(run_id, fname, artifact_path="s3_tracking")
         os.remove(fname)
     except Exception as e:
-        status(f"Failed to log S3 artifacts to MLflow: {e}")
+        logging.warning(f"Failed to log S3 artifacts to MLflow: {e}")
 
 
 def save_model_to_s3_with_tracking(model, model_name, scaler=None):
     s3_artifacts = {}
     slug = model_name.lower().replace(' ', '_').replace('-', '_')
+    prefix = model_name.lower().replace(' ', '_')
 
     model_file = f"model_{slug}.pkl"
     with open(model_file, "wb") as f:
         pickle.dump(model, f)
-    s3_key = f"models/{model_name.lower().replace(' ', '_')}/model.pkl"
+    s3_key = f"models/{prefix}/model.pkl"
     if upload_to_s3(model_file, s3_key):
         s3_artifacts["model_path"] = s3_key
     os.remove(model_file)
@@ -323,7 +324,7 @@ def save_model_to_s3_with_tracking(model, model_name, scaler=None):
         scaler_file = f"scaler_{slug}.pkl"
         with open(scaler_file, "wb") as f:
             pickle.dump(scaler, f)
-        scaler_key = f"models/{model_name.lower().replace(' ', '_')}/scaler.pkl"
+        scaler_key = f"models/{prefix}/scaler.pkl"
         if upload_to_s3(scaler_file, scaler_key):
             s3_artifacts["scaler_path"] = scaler_key
         os.remove(scaler_file)
@@ -361,5 +362,5 @@ def register_model_with_s3_tracking(model, model_name, run_id, scaler=None, addi
         return {"model_name": registered_name, "version": version.version,
                 "run_id": run_id, "s3_artifacts": s3_artifacts}
     except Exception as e:
-        status(f"Failed to register model with S3 tracking: {e}")
+        logging.warning(f"Failed to register model with S3 tracking: {e}")
         return None
