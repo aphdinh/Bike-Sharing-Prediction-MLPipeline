@@ -1,300 +1,117 @@
-# Seoul Bike Sharing Prediction - MLOps Zoomcamp Capstone Project
+# Seoul Bike Sharing Prediction — MLOps Pipeline
 
-A complete end-to-end machine learning project for predicting bike rental demand in Seoul, implementing industry-standard MLOps practices with cloud deployment and monitoring.
+End-to-end MLOps pipeline predicting hourly bike rental demand in Seoul. Covers training, experiment tracking, model serving, monitoring, and automated deployment.
 
-## 📋 About
+## Data
 
-This project demonstrates a production-ready MLOps pipeline for predicting Seoul bike sharing demand.
+**Seoul Bike Sharing Demand** — [UCI ML Repository](https://archive.ics.uci.edu/ml/datasets/Seoul+Bike+Sharing+Demand)
 
-**Key Features:**
-- 🚀 **End-to-end ML pipeline** with automated training and deployment
-- 📊 **Real-time monitoring** with data drift detection and performance tracking  
-- ☁️ **Cloud-native** with AWS infrastructure and Terraform IaC
-- 🔄 **CI/CD pipeline** with GitHub Actions for automated testing and deployment
-- 📈 **Model performance** achieving 85-94% R² score with LightGBM/XGBoost
+- 8,760 instances (1 year of hourly data)
+- Target: hourly rented bike count
+- Features: weather conditions, time, season, holiday
 
-## 🎯 Problem Statement
+Citation: Seoul Bike Sharing Demand [Dataset]. (2020). UCI Machine Learning Repository. https://doi.org/10.24432/C5F62R
 
-Predict the number of bikes rented in Seoul based on weather conditions, time features, and seasonal patterns. This project demonstrates a production-ready ML pipeline with automated training, deployment, monitoring, and retraining capabilities.
+## Stack
 
-## 📊 Data Source
+| Layer | Tool |
+|-------|------|
+| Training | scikit-learn, LightGBM, XGBoost |
+| Experiment tracking | MLflow |
+| Orchestration | Prefect |
+| Serving | FastAPI + Docker |
+| Monitoring | Evidently |
+| Infrastructure | AWS EC2 + S3, Terraform |
+| CI/CD | GitHub Actions |
 
-This project uses the **Seoul Bike Sharing Demand** dataset from the [UCI Machine Learning Repository](https://archive.ics.uci.edu/ml/datasets/Seoul+Bike+Sharing+Demand).
+## Architecture
 
-**Dataset Characteristics:**
-- **Size**: 8,760 instances (1 year of hourly data)
-- **Target**: Rented Bike Count (integer)
-- **License**: Creative Commons Attribution 4.0 International (CC BY 4.0)
-
-**Citation:**
-Seoul Bike Sharing Demand [Dataset]. (2020). UCI Machine Learning Repository. https://doi.org/10.24432/C5F62R.
-
-## ⚡️ Architecture & Tech Stack
-
-### **Cloud Infrastructure (AWS)**
-- **S3**: Artifact storage and model versioning
-- **EC2**: Training and deployment instances
-- **Terraform**: Infrastructure as Code (IaC)
-
-### **MLOps Tools**
-- **MLflow**: Experiment tracking and model registry
-- **Prefect**: Workflow orchestration and scheduling
-- **Evidently**: Model monitoring and data drift detection
-- **FastAPI**: Model serving and REST API
-
-### **Development & Deployment**
-- **Docker**: Containerization
-- **GitHub Actions**: CI/CD pipeline
-- **Pytest**: Comprehensive testing framework
-- **Makefile**: Build automation and task management
-
-## 🚀 Key Features
-
-### **Experiment Tracking & Model Registry**
-- Complete MLflow integration for experiment tracking
-- Automated model registration with production staging
-- Model versioning and artifact management
-
-### **Workflow Orchestration**
-- Prefect-based pipeline with task dependencies
-- Automated retraining schedules
-- Parallel model training and evaluation
-
-### **Model Deployment**
-- FastAPI web service with batch prediction
-- Docker containerization 
-- Health checks and monitoring endpoints
-
-### **Comprehensive Monitoring**
-- Data quality assessment and data drift detection with Evidently
-- Model performance monitoring
-
-## 📊 Model Performance
-
-The pipeline trains and evaluates 12+ ML algorithms:
-- **Best Model**: LightGBM/XGBoost
-- **R² Score**: 0.85-0.94
-- **RMSE**: 200-400 bikes
-
-## 🛠️ Installation & Setup
-
-### Prerequisites
-- Python 3.8+
-- AWS CLI configured
-- Terraform (for cloud deployment)
-
-### 1. Clone and Setup Environment
-
-```bash
-# Clone the repository
-git clone <repository-url>
-cd mlops
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
+```
+Terraform provisions EC2 + S3
+       ↓
+Raw CSV → feature engineering → train 12+ models → MLflow tracking
+       → best model registered → saved to S3
+       → FastAPI loads model at startup (S3 → MLflow fallback)
+       → /predict logs inputs → Evidently detects drift
+       → git push → CI/CD rebuilds Docker image → redeploys to EC2
 ```
 
-### 2. Configure Environment Variables
+## Setup
 
 ```bash
-# Set up environment variables
+# macOS dependency (LightGBM requires libomp)
+brew install libomp
+
+# Create virtual environment and install dependencies
+uv venv .venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
+
+# Set environment variables (or run scripts/server-start.sh)
 export AWS_REGION="eu-north-1"
 export S3_BUCKET_NAME="seoul-bike-sharing-aphdinh"
 export MLFLOW_TRACKING_URI="sqlite:///mlflow.db"
 export MLFLOW_ARTIFACT_URI="s3://seoul-bike-sharing-aphdinh/mlflow-artifacts/"
-
-# Or use the provided script
-chmod +x scripts/setup/server-start.sh
-./scripts/setup/server-start.sh
 ```
 
-### 3. Deploy AWS Infrastructure (Optional)
+## Usage
 
 ```bash
-# Deploy AWS resources
-cd terraform
-terraform init
-terraform plan
-terraform apply
-cd ..
+make train          # train all models, register best to MLflow + S3
+make train-prefect  # same via Prefect orchestration
+make api            # start FastAPI on port 8000
+make test           # run test suite
 ```
 
-## 🚀 Running the Application
-
-### Quick Start with Makefile
+## Predict
 
 ```bash
-# Install dependencies
-make install
-
-# Setup environment
-make setup
-
-# Train models
-make train
-
-# Start API server
-make api
-
-# Run tests
-make test
-```
-
-### Manual Commands
-
-```bash
-# Option 1: Run with Prefect orchestration
-python src/training/train.py prefect
-
-# Option 2: Run core training pipeline
-python src/training/train.py core
-
-# Option 3: Create Prefect deployment
-python src/training/train.py deploy
-
-# Start FastAPI service
-uvicorn src.api.app:app --host 0.0.0.0 --port 8000 --reload
-```
-
-### 3. Access Services
-
-- **API Health Check**: http://localhost:8000/health
-- **MLflow UI**: http://localhost:5000 (if running)
-
-## 📁 Project Structure
-
-```
-mlops/
-├── src/                      # Source code
-│   ├── api/                  # FastAPI application
-│   ├── training/             # Training pipeline
-│   ├── monitoring/           # Model monitoring
-│   ├── models/               # Model definitions
-│   ├── data/                 # Data processing
-│   └── utils/                # Utility functions
-├── tests/                    # Test suite
-├── config/                   # Configuration files
-├── data/                     # Training and monitoring data
-├── notebook/                 # Jupyter notebooks (EDA & Models)
-├── terraform/                # Infrastructure as Code
-├── artifacts/                # Generated models and reports
-├── requirements.txt          # Dependencies
-├── Makefile                  # Build automation
-└── README.md                 # This file
-```
-
-## 📈 Monitoring & Testing
-
-### Test Monitoring System
-
-```bash
-# Test monitoring functionality
-python src/monitoring/test_monitoring.py
-
-# Run integration example
-python src/monitoring/integration_example.py
-
-# Run all tests
-make test
-```
-
-### API Testing
-
-```bash
-# Test prediction endpoint
 curl -X POST "http://localhost:8000/predict" \
   -H "Content-Type: application/json" \
   -d '{
-    "date": "01/01/2024",
-    "hour": 12,
-    "temperature_c": 25.0,
-    "humidity": 60.0,
-    "wind_speed": 2.0,
-    "visibility_10m": 2000.0,
-    "dew_point_c": 15.0,
-    "solar_radiation": 0.5,
-    "rainfall_mm": 0.0,
-    "snowfall_cm": 0.0,
-    "season": "Spring",
-    "holiday": "No Holiday",
+    "date": "15/06/2018", "hour": 8,
+    "temperature_c": 20.0, "humidity": 60.0,
+    "wind_speed": 2.0, "visibility_10m": 1500.0,
+    "dew_point_c": 10.0, "solar_radiation": 1.5,
+    "rainfall_mm": 0.0, "snowfall_cm": 0.0,
+    "season": "Summer", "holiday": "No Holiday",
     "functioning_day": "Yes"
   }'
 ```
 
-### Monitoring Endpoints
+Swagger UI: `http://localhost:8000/docs`
+
+## Monitoring
 
 ```bash
-# Check monitoring status
 curl http://localhost:8000/monitoring/status
-
-# Generate data drift report
 curl -X POST http://localhost:8000/monitoring/data-drift
-
-# Generate data quality report
 curl -X POST http://localhost:8000/monitoring/data-quality
 ```
 
-## 🔧 Configuration
+Reference data (training distribution) is saved automatically after each training run. Each `/predict` call accumulates into the current data buffer for drift comparison.
 
-### Environment Variables
+## Model Performance
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AWS_REGION` | `eu-north-1` | AWS region |
-| `S3_BUCKET_NAME` | `seoul-bike-sharing-aphdinh` | S3 bucket for artifacts |
-| `MLFLOW_TRACKING_URI` | `sqlite:///mlflow.db` | MLflow tracking URI |
-| `MLFLOW_ARTIFACT_URI` | `s3://...` | S3 artifact storage |
+Best model: **LightGBM** — R² 0.85–0.94, RMSE 200–400 bikes
 
-### S3 Bucket Structure
+## Project Structure
 
 ```
-s3://seoul-bike-sharing-aphdinh/
-├── data/                    # Training data
-├── models/                  # Trained models
-├── artifacts/              # MLflow artifacts
-└── reports/               # Monitoring reports
-```
-
-## 📊 Results & Artifacts
-
-### MLflow Experiments
-- Complete experiment history
-- Model comparison metrics
-- Hyperparameter optimization results
-- Artifact versioning
-
-### S3 Artifacts
-- Trained models with metadata
-- Feature importance plots
-- Training reports and summaries
-- Monitoring dashboards
-
-## 🎯 Requirements
-
-| Requirement | Status | Implementation |
-|-------------|--------|----------------|
-| **Problem Description** | ✅ Complete | Seoul bike sharing prediction with clear objectives |
-| **Cloud Integration** | ✅ Complete | AWS S3, EC2, Terraform IaC |
-| **Experiment Tracking** | ✅ Complete | MLflow with model registry |
-| **Workflow Orchestration** | ✅ Complete | Prefect with scheduling |
-| **Model Deployment** | ✅ Complete | FastAPI + Docker |
-| **Model Monitoring** | ✅ Complete | Evidently with alerts |
-| **Reproducibility** | ✅ Complete | Requirements.txt + setup instructions |
-| **Best Practices** | ✅ Complete | Tests, CI/CD, documentation, Makefile |
-
-## 🚀 Deployment Options
-
-### Local Development
-```bash
-make dev  # Full development setup
-```
-
-### Cloud Deployment
-```bash
-make deploy-infra  # Deploy infrastructure
-python src/training/train.py prefect  # Run training on cloud
+├── src/
+│   ├── api/          # FastAPI app
+│   ├── training/     # training pipeline + Prefect orchestrator
+│   ├── monitoring/   # Evidently drift detection
+│   ├── models/       # model definitions, hyperparameter tuning
+│   ├── data/         # data loading, feature engineering
+│   └── utils/        # MLflow + AWS helpers
+├── tests/            # unit + integration tests
+├── data/             # training data + reference data for monitoring
+├── notebook/         # EDA notebooks
+├── terraform/        # infrastructure as code (EC2, S3)
+├── scripts/          # environment setup
+├── artifacts/        # generated models and reports
+├── Dockerfile
+├── Makefile
+└── requirements.txt
 ```
