@@ -2,7 +2,6 @@ import mlflow
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import json
 import os
 import pickle
 import logging
@@ -231,24 +230,6 @@ def compare_models_mlflow(experiment_name):
     return pd.DataFrame(data)
 
 
-def get_s3_tracking_info(run_id, model_name, version):
-    try:
-        client = MlflowClient()
-        run = client.get_run(run_id)
-        artifacts = client.list_artifacts(run_id)
-        s3_info = {
-            "run_id": run_id, "model_name": model_name, "version": version,
-            "artifact_uri": run.info.artifact_uri,
-            "artifact_count": len(artifacts),
-            "s3_artifacts": [{"path": a.path, "is_dir": a.is_dir} for a in artifacts],
-        }
-        if aws_available:
-            s3_info["s3_bucket"] = S3_BUCKET_NAME
-        return s3_info
-    except Exception as e:
-        return {"error": str(e), "run_id": run_id}
-
-
 def load_production_model_with_tracking(alias="production"):
     client = MlflowClient()
     model_name = "seoul_bike_production_model"
@@ -257,8 +238,8 @@ def load_production_model_with_tracking(alias="production"):
         v = client.get_model_version_by_alias(model_name, alias)
         model = mlflow.sklearn.load_model(f"models:/{model_name}/{alias}")
         model_info = {"model_name": model_name, "version": v.version, "stage": v.current_stage,
-                      "description": v.description, "run_id": v.run_id, "alias": alias, "tags": v.tags}
-        return model, model_info, get_s3_tracking_info(v.run_id, model_name, v.version)
+                      "description": v.description, "run_id": v.run_id, "alias": alias}
+        return model, model_info
     except Exception:
         pass
 
@@ -266,25 +247,10 @@ def load_production_model_with_tracking(alias="production"):
         v = client.get_latest_versions(model_name, stages=["Production"])[0]
         model = mlflow.sklearn.load_model(f"models:/{model_name}/Production")
         model_info = {"model_name": model_name, "version": v.version, "stage": "Production",
-                      "description": v.description, "run_id": v.run_id, "alias": "Production (fallback)", "tags": v.tags}
-        return model, model_info, get_s3_tracking_info(v.run_id, model_name, v.version)
+                      "description": v.description, "run_id": v.run_id}
+        return model, model_info
     except (IndexError, Exception):
-        return None, None, None
-
-
-
-def log_s3_artifacts_to_mlflow(run_id, model_name, s3_artifacts):
-    try:
-        slug = model_name.lower().replace(' ', '_')
-        metadata = {"s3_bucket": S3_BUCKET_NAME, "s3_prefix": f"models/{slug}/",
-                    "artifacts": s3_artifacts, "timestamp": datetime.now().isoformat()}
-        fname = f"s3_artifacts_{slug}.json"
-        with open(fname, 'w') as f:
-            json.dump(metadata, f, indent=2)
-        MlflowClient().log_artifact(run_id, fname, artifact_path="s3_tracking")
-        os.remove(fname)
-    except Exception as e:
-        logging.warning(f"Failed to log S3 artifacts to MLflow: {e}")
+        return None, None
 
 
 def save_model_to_s3_with_tracking(model, model_name, scaler=None):
@@ -317,7 +283,6 @@ def save_model_to_s3_with_tracking(model, model_name, scaler=None):
 def register_model_with_s3_tracking(model, model_name, run_id, scaler=None, additional_artifacts=None):
     try:
         s3_artifacts = save_model_to_s3_with_tracking(model, model_name, scaler)
-        log_s3_artifacts_to_mlflow(run_id, model_name, s3_artifacts)
 
         client = MlflowClient()
         registered_name = f"seoul_bike_{model_name.lower().replace(' ', '_')}"

@@ -74,22 +74,13 @@ def load_production_model():
             logger.warning(f"S3 model load failed: {e}")
 
     try:
-        model, model_info, s3_info = load_production_model_with_tracking("production")
+        model, model_info = load_production_model_with_tracking("production")
         if model is not None:
-            model_metadata = {"model_info": model_info, "s3_info": s3_info}
+            model_metadata = model_info
             model_loaded_at = datetime.now().isoformat()
             return True
     except Exception as e:
         logger.warning(f"MLflow load failed: {e}")
-
-    try:
-        model, model_info, s3_info = load_production_model_with_tracking("production")
-        if model is not None:
-            model_metadata = {"model_info": model_info, "s3_info": s3_info, "verification_status": "mlflow_only"}
-            model_loaded_at = datetime.now().isoformat()
-            return True
-    except Exception as e:
-        logger.warning(f"MLflow tracking load failed: {e}")
 
     return False
 
