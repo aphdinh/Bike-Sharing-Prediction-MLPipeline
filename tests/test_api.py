@@ -1,7 +1,11 @@
 import pytest
 import numpy as np
+import importlib
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
+
+app_module = importlib.import_module('src.api.app')
+app = app_module.app
 
 
 VALID_REQUEST = {
@@ -30,10 +34,9 @@ def mock_model():
 
 @pytest.fixture
 def client(mock_model):
-    with patch("src.api.app.load_best_model_from_s3", return_value=(mock_model, None, {})), \
-         patch("src.api.app.aws_available", True), \
-         patch("src.api.app.initialize_monitoring"):
-        from src.api.app import app
+    with patch.object(app_module, 'load_best_model_from_s3', return_value=(mock_model, None, {})), \
+         patch.object(app_module, 'aws_available', True), \
+         patch.object(app_module, 'initialize_monitoring'):
         with TestClient(app) as c:
             yield c
 
