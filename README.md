@@ -4,7 +4,7 @@ End-to-end MLOps pipeline predicting hourly bike rental demand in Seoul. Covers 
 
 ## Data
 
-** 🚴 Seoul Bike Sharing Demand** — [UCI ML Repository](https://archive.ics.uci.edu/ml/datasets/Seoul+Bike+Sharing+Demand)
+**Seoul Bike Sharing Demand** — [UCI ML Repository](https://archive.ics.uci.edu/ml/datasets/Seoul+Bike+Sharing+Demand)
 
 - 8,760 instances (1 year of hourly data)
 - Target: hourly rented bike count
