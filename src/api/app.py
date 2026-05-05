@@ -12,7 +12,7 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 
 from ..data.data_processing import preprocess_data, load_data, feature_engineering
-from ..utils.mlflow_utils import load_production_model_with_tracking, load_model_with_s3_verification
+from ..utils.mlflow_utils import load_production_model_with_tracking
 from ..utils.aws_utils import load_best_model_from_s3, aws_available, S3_BUCKET_NAME, check_s3_model_completeness
 from ..monitoring.monitoring import initialize_monitoring, get_monitor
 
@@ -74,13 +74,13 @@ def load_production_model():
             logger.warning(f"S3 model load failed: {e}")
 
     try:
-        model, model_info, s3_info, verification_status = load_model_with_s3_verification("production")
+        model, model_info, s3_info = load_production_model_with_tracking("production")
         if model is not None:
-            model_metadata = {"model_info": model_info, "s3_info": s3_info, "verification_status": verification_status}
+            model_metadata = {"model_info": model_info, "s3_info": s3_info}
             model_loaded_at = datetime.now().isoformat()
             return True
     except Exception as e:
-        logger.warning(f"MLflow S3 verification load failed: {e}")
+        logger.warning(f"MLflow load failed: {e}")
 
     try:
         model, model_info, s3_info = load_production_model_with_tracking("production")

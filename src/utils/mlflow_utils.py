@@ -6,7 +6,6 @@ import json
 import os
 import pickle
 import logging
-import boto3
 from datetime import datetime
 
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
@@ -272,25 +271,6 @@ def load_production_model_with_tracking(alias="production"):
     except (IndexError, Exception):
         return None, None, None
 
-
-def artifact_exists_in_s3(s3_key):
-    if not aws_available:
-        return False
-    try:
-        boto3.client('s3', region_name=AWS_REGION).head_object(Bucket=S3_BUCKET_NAME, Key=s3_key)
-        return True
-    except Exception:
-        return False
-
-
-def load_model_with_s3_verification(model_name, alias="production"):
-    model, model_info, s3_info = load_production_model_with_tracking(alias)
-    if model is None:
-        return None, None, None, "failed_to_load"
-
-    missing = [a for a in (s3_info or {}).get("s3_artifacts", []) if not artifact_exists_in_s3(a)]
-    status = "missing_artifacts" if missing else "verified"
-    return model, model_info, s3_info, status
 
 
 def log_s3_artifacts_to_mlflow(run_id, model_name, s3_artifacts):
