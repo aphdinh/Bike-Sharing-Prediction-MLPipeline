@@ -1,133 +1,76 @@
-"""
-Tests for monitoring functionality.
-"""
-
 import pytest
 import pandas as pd
 import numpy as np
-from unittest.mock import patch, MagicMock
-
-try:
-    from src.monitoring.monitoring import ModelMonitor, initialize_monitoring
-except ImportError:
-    class ModelMonitor:
-        def __init__(self, reference_data_path):
-            self.reference_data = pd.DataFrame({
-                'hour': [6, 19, 14],
-                'temperature_c': [25, 30, 20],
-                'humidity': [60, 70, 50],
-                'wind_speed': [2.0, 3.0, 1.5],
-                'visibility_10m': [2000, 1500, 1800],
-                'dew_point_c': [15, 20, 10],
-                'solar_radiation': [0.5, 0.8, 0.3],
-                'rainfall_mm': [0.0, 0.1, 0.0],
-                'snowfall_cm': [0.0, 0.0, 0.0],
-                'season': ['Spring', 'Summer', 'Autumn'],
-                'holiday': ['No Holiday', 'Holiday', 'No Holiday'],
-                'functioning_day': ['Yes', 'Yes', 'Yes'],
-                'rented_bike_count': [100, 150, 80]
-            })
-            self.current_data = None
-        
-        def update_current_data(self, data):
-            self.current_data = data
-        
-        def check_data_drift(self):
-            return {'drift_detected': False, 'drift_score': 0.1}
-        
-        def check_data_quality(self):
-            return {'total_rows': len(self.current_data) if self.current_data is not None else 0, 'missing_values': {}}
-        
-        def check_model_performance(self, predictions, actuals):
-            return {'mae': 10.0, 'rmse': 15.0}
-    
-    def initialize_monitoring(reference_data_path):
-        return ModelMonitor(reference_data_path)
+from src.monitoring.monitoring import ModelMonitor
 
 
-class TestMonitoring:
+@pytest.fixture
+def monitor():
+    m = ModelMonitor.__new__(ModelMonitor)
+    m.reference_data = None
+    m.current_data = None
+    m.data_definition = None
+    return m
 
-    def test_monitor_initialization(self):
-        with patch('pandas.read_csv') as mock_read_csv:
-            mock_data = pd.DataFrame({
-                'hour': [6, 19, 14],
-                'temperature_c': [25, 30, 20],
-                'humidity': [60, 70, 50],
-                'wind_speed': [2.0, 3.0, 1.5],
-                'visibility_10m': [2000, 1500, 1800],
-                'dew_point_c': [15, 20, 10],
-                'solar_radiation': [0.5, 0.8, 0.3],
-                'rainfall_mm': [0.0, 0.1, 0.0],
-                'snowfall_cm': [0.0, 0.0, 0.0],
-                'season': ['Spring', 'Summer', 'Autumn'],
-                'holiday': ['No Holiday', 'Holiday', 'No Holiday'],
-                'functioning_day': ['Yes', 'Yes', 'Yes'],
-                'rented_bike_count': [100, 150, 80]
-            })
-            mock_read_csv.return_value = mock_data
-            
-            monitor = initialize_monitoring("dummy_path.csv")
-            
-            assert monitor is not None
-            assert hasattr(monitor, 'reference_data')
 
-    def test_monitor_basic_functionality(self):
-        monitor = ModelMonitor("dummy_path.csv")
-        
-        test_data = pd.DataFrame({
-            'temperature_c': [25, 30, 20],
-            'humidity': [60, 70, 50],
-            'rented_bike_count': [100, 150, 80]
-        })
-        
-        monitor.update_current_data(test_data)
+class TestModelPerformance:
+    def test_perfect_predictions(self, monitor):
+        actuals = [100, 200, 300]
+        result = monitor.check_model_performance(actuals, actuals)
+        assert result["mae"] == pytest.approx(0.0)
+        assert result["rmse"] == pytest.approx(0.0)
+        assert result["r2_score"] == pytest.approx(1.0)
+
+    def test_mae_calculation(self, monitor):
+        predictions = [100, 150, 80]
+        actuals = [110, 140, 90]
+        result = monitor.check_model_performance(predictions, actuals)
+        expected_mae = np.mean([10, 10, 10])
+        assert result["mae"] == pytest.approx(expected_mae)
+
+    def test_rmse_calculation(self, monitor):
+        predictions = [100, 200]
+        actuals = [110, 190]
+        result = monitor.check_model_performance(predictions, actuals)
+        expected_rmse = np.sqrt(np.mean([100, 100]))
+        assert result["rmse"] == pytest.approx(expected_rmse)
+
+    def test_empty_predictions_returns_error(self, monitor):
+        result = monitor.check_model_performance([], [])
+        assert "error" in result
+
+    def test_result_has_required_fields(self, monitor):
+        result = monitor.check_model_performance([100], [110])
+        assert "mae" in result
+        assert "rmse" in result
+        assert "r2_score" in result
+        assert "total_predictions" in result
+
+
+class TestUpdateCurrentData:
+    def test_sets_current_data(self, monitor):
+        df = pd.DataFrame({"a": [1, 2, 3]})
+        monitor.update_current_data(df)
         assert monitor.current_data is not None
         assert len(monitor.current_data) == 3
 
-    def test_monitor_error_handling(self):
-        monitor = ModelMonitor("dummy_path.csv")
-        
-        quality_results = monitor.check_data_quality()
-        assert isinstance(quality_results, dict)
-        
-        performance_results = monitor.check_model_performance([], [])
-        assert isinstance(performance_results, dict)
-
-    def test_monitor_data_validation(self):
-        monitor = ModelMonitor("dummy_path.csv")
-        
-        valid_data = pd.DataFrame({
-            'temperature_c': [25, 30, 20],
-            'humidity': [60, 70, 50],
-            'rented_bike_count': [100, 150, 80]
-        })
-        
-        monitor.update_current_data(valid_data)
-        assert monitor.current_data is not None
-        
-        data_with_nan = pd.DataFrame({
-            'temperature_c': [25, np.nan, 20],
-            'humidity': [60, 70, 50],
-            'rented_bike_count': [100, 150, 80]
-        })
-        
-        monitor.update_current_data(data_with_nan)
-        assert monitor.current_data is not None
-
-    def test_monitor_performance_calculation(self):
-        monitor = ModelMonitor("dummy_path.csv")
-        
-        predictions = [100, 150, 80, 120]
-        actuals = [95, 160, 85, 125]
-        
-        performance_results = monitor.check_model_performance(predictions, actuals)
-        
-        assert isinstance(performance_results, dict)
-        if 'mae' in performance_results:
-            assert isinstance(performance_results['mae'], (int, float))
-        if 'rmse' in performance_results:
-            assert isinstance(performance_results['rmse'], (int, float))
+    def test_replaces_existing_data(self, monitor):
+        monitor.update_current_data(pd.DataFrame({"a": [1]}))
+        monitor.update_current_data(pd.DataFrame({"a": [1, 2, 3]}))
+        assert len(monitor.current_data) == 3
 
 
-if __name__ == "__main__":
-    pytest.main([__file__]) 
+class TestDataValidation:
+    def test_replaces_inf_with_zero(self, monitor):
+        monitor.reference_data = pd.DataFrame({"a": [np.inf, 1.0]})
+        monitor.current_data = pd.DataFrame({"a": [1.0, -np.inf]})
+        monitor._validate_data()
+        assert not np.isinf(monitor.reference_data["a"]).any()
+        assert not np.isinf(monitor.current_data["a"]).any()
+
+    def test_fills_nan_with_zero(self, monitor):
+        monitor.reference_data = pd.DataFrame({"a": [np.nan, 1.0]})
+        monitor.current_data = pd.DataFrame({"a": [1.0, np.nan]})
+        monitor._validate_data()
+        assert not monitor.reference_data["a"].isnull().any()
+        assert not monitor.current_data["a"].isnull().any()
