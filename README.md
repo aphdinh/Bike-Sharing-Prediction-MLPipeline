@@ -1,10 +1,10 @@
-# Seoul Bike Sharing Prediction — MLOps Pipeline
+# Seoul Bike Sharing Prediction (MLOps Pipeline)
 
 End-to-end MLOps pipeline predicting hourly bike rental demand in Seoul. Covers training, experiment tracking, model serving, monitoring, and automated deployment.
 
 ## Data
 
-**Seoul Bike Sharing Demand** — [UCI ML Repository](https://archive.ics.uci.edu/ml/datasets/Seoul+Bike+Sharing+Demand)
+** 🚴 Seoul Bike Sharing Demand** — [UCI ML Repository](https://archive.ics.uci.edu/ml/datasets/Seoul+Bike+Sharing+Demand)
 
 - 8,760 instances (1 year of hourly data)
 - Target: hourly rented bike count
@@ -12,7 +12,7 @@ End-to-end MLOps pipeline predicting hourly bike rental demand in Seoul. Covers 
 
 Citation: Seoul Bike Sharing Demand [Dataset]. (2020). UCI Machine Learning Repository. https://doi.org/10.24432/C5F62R
 
-## Stack
+## 📚 Stack
 
 | Layer | Tool |
 |-------|------|
