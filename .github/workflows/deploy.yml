@@ -81,8 +81,5 @@ jobs:
             -e MLFLOW_TRACKING_URI=${{ secrets.MLFLOW_TRACKING_URI }} \
             -e MLFLOW_ARTIFACT_URI=${{ secrets.MLFLOW_ARTIFACT_URI }} \
             ${{ secrets.DOCKER_USERNAME }}/seoul-bike-api:latest
-
-    - name: Smoke test
-      run: |
-        sleep 15
-        curl --fail http://${{ secrets.EC2_HOST }}:8000/health
+          sleep 30
+          curl --fail http://localhost:8000/health
