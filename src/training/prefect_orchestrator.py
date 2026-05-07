@@ -1,4 +1,3 @@
-import sys
 from datetime import datetime, timedelta
 from typing import Dict, Tuple, Optional, Any
 import pandas as pd
@@ -16,35 +15,18 @@ import prefect
 import mlflow
 
 from .train_core import (
-    validate_environment_core, setup_mlflow_core, prepare_data_core,
-    train_single_model_core, perform_hyperparameter_tuning_core,
-    register_and_save_best_model_core, create_training_report_core,
-    get_scale_sensitive_models
+    prepare_data_core, train_all_models_core, perform_hyperparameter_tuning_core,
+    register_and_save_best_model_core
 )
-from ..models.models import get_models
+from ..utils.mlflow_utils import setup_mlflow
 
 
-@task(name="validate_environment", tags=["setup"], cache_key_fn=task_input_hash, cache_expiration=timedelta(hours=1))
-def validate_environment() -> Dict[str, Any]:
-    logger = get_run_logger()
-    config = validate_environment_core()
-    config['prefect_flow_run_id'] = str(flow_run.id) if flow_run else None
-    config['timestamp'] = datetime.now().isoformat()
-    for key, value in config.items():
-        logger.info(f"{key}: {value}")
-    return config
-
-
-@task(name="setup_mlflow_experiment", tags=["mlflow"], cache_key_fn=task_input_hash, cache_expiration=timedelta(hours=1))
-def setup_mlflow_experiment(config: Dict[str, Any]) -> str:
-    logger = get_run_logger()
-    experiment_id = setup_mlflow_core()
-    if mlflow.active_run():
-        mlflow.set_tag("prefect_flow_run_id", config.get('prefect_flow_run_id'))
-        mlflow.set_tag("prefect_flow_name", flow_run.flow_name if flow_run else "unknown")
-        mlflow.log_param("prefect_version", prefect.__version__)
-    logger.info(f"MLflow experiment ID: {experiment_id}")
-    return experiment_id
+def _setup_mlflow():
+    try:
+        mlflow.end_run()
+    except:
+        pass
+    return setup_mlflow()
 
 
 @task(name="prepare_training_data", tags=["data"], cache_key_fn=task_input_hash, cache_expiration=timedelta(hours=6))
@@ -55,80 +37,78 @@ def prepare_training_data() -> Tuple:
     return data
 
 
-@task(name="train_single_model", tags=["training"], retries=2, retry_delay_seconds=30)
-def train_single_model(model_info, X_train, X_test, y_train, y_test, scale_sensitive_models) -> Dict[str, Any]:
-    logger = get_run_logger()
-    model_name, model = model_info
-    result = train_single_model_core(model, X_train, X_test, y_train, y_test, model_name, scale_sensitive_models)
-    logger.info(f"{model_name} — R²: {result['test_r2']:.4f}, RMSE: {result['test_rmse']:.4f}")
-    return result
-
-
 @task(name="train_all_models", tags=["training"])
-def train_all_models(X_train, X_test, y_train, y_test) -> pd.DataFrame:
+def train_all_models(X_train, X_test, y_train, y_test) -> Tuple[pd.DataFrame, Dict]:
     logger = get_run_logger()
-    futures = [
-        train_single_model.submit((name, model), X_train, X_test, y_train, y_test, get_scale_sensitive_models())
-        for name, model in get_models().items()
-    ]
-    results = [f.result() for f in futures]
-    logger.info(f"Trained {len(results)} models")
-    return pd.DataFrame(results)
+    results_df, trained_models = train_all_models_core(X_train, X_test, y_train, y_test)
+    logger.info(f"Trained {len(results_df)} models")
+    return results_df, trained_models
 
 
 @task(name="hyperparameter_optimization", tags=["tuning"], cache_key_fn=task_input_hash, cache_expiration=timedelta(hours=12))
-def perform_hyperparameter_optimization(best_model_name, X_train, y_train, X_val, y_val, X_test, y_test) -> Optional[Dict[str, Any]]:
+def perform_hyperparameter_optimization(best_model_name, X_train, y_train, X_val, y_val, X_test, y_test) -> Tuple[Optional[Dict], Any]:
     logger = get_run_logger()
     try:
-        result = perform_hyperparameter_tuning_core(best_model_name, X_train, y_train, X_val, y_val, X_test, y_test)
+        result, model = perform_hyperparameter_tuning_core(best_model_name, X_train, y_train, X_val, y_val, X_test, y_test)
         if result:
             logger.info(f"Tuning complete — R²: {result['test_r2']:.4f}, RMSE: {result['test_rmse']:.4f}")
-        return result
+        return result, model
     except Exception as e:
         logger.error(f"Hyperparameter optimization failed: {e}")
-        return None
+        return None, None
 
 
 @task(name="register_best_model", tags=["model-registry"])
-def register_and_save_best_model(results_df: pd.DataFrame) -> Tuple:
+def register_and_save_best_model(results_df: pd.DataFrame, best_model: Any, best_scaler: Any) -> Tuple:
     logger = get_run_logger()
-    result = register_and_save_best_model_core(results_df)
+    result = register_and_save_best_model_core(results_df, best_model, best_scaler)
     logger.info(f"Registered: {result[2]}")
     return result
-
-
-@task(name="create_training_report", tags=["reporting"])
-def create_training_report(config, results_df, comparison_df, best_model_name, tuning_result) -> str:
-    logger = get_run_logger()
-    report = create_training_report_core(config, results_df, comparison_df, best_model_name, tuning_result)
-    report += f"\n## Prefect Details\n- Flow Run ID: {config.get('prefect_flow_run_id', 'N/A')}\n- Version: {prefect.__version__}\n"
-    create_markdown_artifact(markdown=report, key="training-report", description="Training pipeline report")
-    create_table_artifact(table=results_df.round(4).to_dict('records'), key="model-results", description="Model results")
-    logger.info("Report created")
-    return report
 
 
 @flow(name="ml-training-pipeline", version="1.0.0", persist_result=True, retries=1, retry_delay_seconds=60)
 def ml_training_pipeline() -> Dict[str, Any]:
     logger = get_run_logger()
 
-    config = validate_environment()
-    experiment_id = setup_mlflow_experiment(config)
+    experiment_id = _setup_mlflow()
     X_train, X_val, X_test, y_train, y_val, y_test = prepare_training_data()
 
-    results_df = train_all_models(X_train, X_test, y_train, y_test)
+    results_df, trained_models = train_all_models(X_train, X_test, y_train, y_test)
     best_model_name = results_df.loc[results_df['test_r2'].idxmax(), 'model_name']
-    logger.info(f"Best model: {best_model_name}")
+    logger.info(f"Best model from sweep: {best_model_name}")
 
-    tuning_result = perform_hyperparameter_optimization(
+    tuning_result, tuned_model = perform_hyperparameter_optimization(
         best_model_name, X_train, y_train, X_val, y_val, X_test, y_test
     )
-    updated_results_df, comparison_df, registered_model_name = register_and_save_best_model(results_df)
-    create_training_report(config, updated_results_df, comparison_df, best_model_name, tuning_result)
+    if tuning_result:
+        results_df = pd.concat([results_df, pd.DataFrame([tuning_result])], ignore_index=True)
 
-    best_r2 = updated_results_df['test_r2'].max()
-    best_rmse = updated_results_df.loc[updated_results_df['test_r2'].idxmax(), 'test_rmse']
-    logger.info(f"Best Model: R² = {best_r2:.4f}, RMSE = {best_rmse:.2f}")
+    best_row = results_df.loc[results_df['test_r2'].idxmax()]
+    best_model_name = best_row['model_name']
+
+    if best_model_name.startswith('Hyperopt_Tuned_') and tuned_model is not None:
+        best_model, best_scaler = tuned_model, None
+    else:
+        best_model, best_scaler = trained_models.get(best_model_name, (None, None))
+
+    updated_results_df, comparison_df, registered_model_name = register_and_save_best_model(
+        results_df, best_model, best_scaler
+    )
+
+    best_r2 = best_row['test_r2']
+    best_rmse = best_row['test_rmse']
+    logger.info(f"Best Model: {best_model_name} — R² = {best_r2:.4f}, RMSE = {best_rmse:.2f}")
+
+    create_markdown_artifact(
+        markdown=f"# Training Results\n- **Best Model**: {best_model_name}\n- **R²**: {best_r2:.4f}\n- **RMSE**: {best_rmse:.2f}\n- **Models Evaluated**: {len(updated_results_df)}",
+        key="training-report",
+        description="Training pipeline report"
+    )
+    create_table_artifact(
+        table=updated_results_df.round(4).to_dict('records'),
+        key="model-results",
+        description="Model results"
+    )
 
     return {
         'status': 'success',
@@ -148,7 +128,7 @@ def create_deployment():
         "name": "ml-training-pipeline-deployment",
         "schedule": CronSchedule(cron="0 2 1 * *", timezone="UTC"),
         "work_pool_name": "default-agent-pool",
-        "parameters": {"retrain_models": True, "optimize_hyperparameters": True}
+        "parameters": {}
     }
 
 
