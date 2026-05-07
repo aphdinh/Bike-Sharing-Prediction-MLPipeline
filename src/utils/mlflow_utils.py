@@ -103,7 +103,6 @@ def create_prediction_plots(y_test, y_pred, model_name):
     plot_file = f"prediction_analysis_{slug}.png"
     plt.savefig(plot_file, dpi=300, bbox_inches='tight')
     mlflow.log_artifact(plot_file, artifact_path="plots")
-    upload_to_s3(plot_file, f"models/{model_name.lower().replace(' ', '_')}/prediction_analysis.png")
     os.remove(plot_file)
     plt.close()
 
