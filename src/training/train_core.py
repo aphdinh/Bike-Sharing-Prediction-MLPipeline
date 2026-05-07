@@ -54,19 +54,6 @@ def prepare_data_core() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame,
     return X_train, X_val, X_test, y_train, y_val, y_test
 
 
-def train_all_models_core(X_train, X_test, y_train, y_test):
-    models = get_models()
-    scale_sensitive = get_scale_sensitive_models()
-    results = []
-    trained_models = {}
-    for name, model in models.items():
-        scaler = StandardScaler() if name in scale_sensitive else None
-        result = evaluate_single_model(model, X_train, X_test, y_train, y_test, name, scaler=scaler)
-        results.append(result)
-        trained_models[name] = (model, scaler)
-    return pd.DataFrame(results), trained_models
-
-
 def perform_hyperparameter_tuning_core(
     best_model_name: str,
     X_train: pd.DataFrame,
@@ -220,6 +207,19 @@ def get_scale_sensitive_models():
         'Linear Regression', 'Ridge Regression', 'Lasso Regression',
         'Elastic Net', 'K-Nearest Neighbors', 'Support Vector Regression'
     }
+
+
+def train_all_models_core(X_train, X_test, y_train, y_test):
+    models = get_models()
+    scale_sensitive = get_scale_sensitive_models()
+    results = []
+    trained_models = {}
+    for name, model in models.items():
+        scaler = StandardScaler() if name in scale_sensitive else None
+        result = evaluate_single_model(model, X_train, X_test, y_train, y_test, name, scaler=scaler)
+        results.append(result)
+        trained_models[name] = (model, scaler)
+    return pd.DataFrame(results), trained_models
 
 
 def main_training_pipeline() -> Dict[str, Any]:
