@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import os
@@ -15,6 +15,10 @@ from ..data.data_processing import preprocess_data, load_data, feature_engineeri
 from ..utils.mlflow_utils import load_production_model_with_tracking
 from ..utils.aws_utils import load_best_model_from_s3, aws_available, S3_BUCKET_NAME, check_s3_model_completeness
 from ..monitoring.monitoring import initialize_monitoring, get_monitor
+from ..training.train_core import main_training_pipeline
+
+DRIFT_THRESHOLD = 0.5
+retraining_in_progress = False
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -189,10 +193,35 @@ async def check_s3_model_completeness_endpoint():
             "model_exists": info.get("model_exists", False), "scaler_exists": info.get("scaler_exists", False)}
 
 
-@app.post("/monitoring/data-drift")
-async def generate_data_drift_report():
+def run_retraining():
+    global retraining_in_progress, model, scaler, model_metadata, verification_status, model_loaded_at
+    retraining_in_progress = True
     try:
-        return {"status": "success", "report": serialize(get_monitor().check_data_drift())}
+        logger.info("Drift detected — starting retraining...")
+        main_training_pipeline()
+        logger.info("Retraining complete — reloading model...")
+        load_production_model()
+    except Exception as e:
+        logger.error(f"Retraining failed: {e}")
+    finally:
+        retraining_in_progress = False
+
+
+@app.post("/monitoring/data-drift")
+async def generate_data_drift_report(background_tasks: BackgroundTasks):
+    try:
+        report = serialize(get_monitor().check_data_drift())
+        drift_score = report.get("drift_score", 0)
+        retraining_triggered = False
+
+        if drift_score > DRIFT_THRESHOLD and not retraining_in_progress:
+            background_tasks.add_task(run_retraining)
+            retraining_triggered = True
+            logger.info(f"Drift score {drift_score} > {DRIFT_THRESHOLD} — retraining triggered")
+
+        return {"status": "success", "report": report,
+                "retraining_triggered": retraining_triggered,
+                "retraining_in_progress": retraining_in_progress}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
