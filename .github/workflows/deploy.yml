@@ -81,5 +81,6 @@ jobs:
             -e MLFLOW_TRACKING_URI=${{ secrets.MLFLOW_TRACKING_URI }} \
             -e MLFLOW_ARTIFACT_URI=${{ secrets.MLFLOW_ARTIFACT_URI }} \
             ${{ secrets.DOCKER_USERNAME }}/seoul-bike-api:latest
-          sleep 30
+          sleep 60
+          sudo docker logs seoul-bike-api
           curl --fail http://localhost:8000/health
