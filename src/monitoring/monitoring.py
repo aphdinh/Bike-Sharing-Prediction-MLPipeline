@@ -102,15 +102,17 @@ class ModelMonitor:
             }
             
             try:
-                metrics_dict = evaluation.dict().get("metrics", {})
-                for metric_name, metric_data in metrics_dict.items():
-                    if "DatasetDriftMetric" in metric_name:
-                        result = metric_data.get("result", {})
-                        drift_info["drift_detected"] = result.get("dataset_drift", False)
-                        drift_info["drift_score"] = result.get("drift_share", 0)
-                        drift_info["drifted_columns"] = result.get("number_of_drifted_columns", 0)
-                        drift_info["total_columns"] = result.get("number_of_columns", 0)
-                        break
+                metrics = evaluation.dict().get("metrics", [])
+                column_drifts = [m for m in metrics if m.get("metric_name", "").startswith("ValueDrift")]
+                summary = next((m for m in metrics if "DriftedColumnsCount" in m.get("metric_name", "")), None)
+                if summary:
+                    val = summary.get("value", {})
+                    drift_share = val.get("share", 0)
+                    threshold = summary.get("config", {}).get("drift_share", 0.5)
+                    drift_info["drift_detected"] = drift_share > threshold
+                    drift_info["drift_score"] = round(drift_share, 4)
+                    drift_info["drifted_columns"] = int(val.get("count", 0))
+                    drift_info["total_columns"] = len(column_drifts)
             except Exception as e:
                 logger.warning(f"Could not extract drift metrics: {e}")
             
