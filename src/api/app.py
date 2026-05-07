@@ -148,6 +148,24 @@ def run_prediction(request_data: PredictionRequest) -> int:
     return prediction
 
 
+def get_confidence(prediction: int) -> float:
+    """Confidence based on prediction magnitude relative to model RMSE.
+    Higher prediction relative to RMSE = higher confidence."""
+    try:
+        rmse = None
+        if isinstance(model_metadata, dict):
+            rmse = (model_metadata.get("performance_metrics") or {}).get("test_rmse")
+            if rmse is None:
+                tags = (model_metadata.get("tags") or {})
+                rmse = tags.get("test_rmse_score")
+        if rmse:
+            rmse = float(rmse)
+            return round(min(0.99, 1 / (1 + rmse / max(prediction, 1))), 2)
+    except Exception:
+        pass
+    return 0.75
+
+
 def get_model_info() -> Dict[str, Any]:
     return {"model_type": type(model).__name__, "verification_status": verification_status, "s3_bucket": S3_BUCKET_NAME}
 
@@ -159,7 +177,7 @@ async def predict(request: PredictionRequest):
     prediction = run_prediction(request)
     return PredictionResponse(
         prediction=prediction,
-        confidence=0.85,
+        confidence=get_confidence(prediction),
         model_info=get_model_info(),
         prediction_timestamp=datetime.now().isoformat(),
         processing_time_ms=(time.time() - start_time) * 1000
@@ -173,7 +191,8 @@ async def predict_batch(request: BatchPredictionRequest):
     predictions = []
     for i, pred_request in enumerate(request.data):
         try:
-            predictions.append({"index": i, "prediction": run_prediction(pred_request), "confidence": 0.85, "status": "success"})
+            pred = run_prediction(pred_request)
+            predictions.append({"index": i, "prediction": pred, "confidence": get_confidence(pred), "status": "success"})
         except Exception as e:
             predictions.append({"index": i, "prediction": None, "confidence": 0.0, "status": "error", "error": str(e)})
 
