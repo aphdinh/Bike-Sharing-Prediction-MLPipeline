@@ -26,14 +26,41 @@ Citation: Seoul Bike Sharing Demand [Dataset]. (2020). UCI Machine Learning Repo
 
 ## Architecture
 
-```
-Terraform provisions EC2 + S3
-       ↓
-Raw CSV → feature engineering → train 12+ models → MLflow tracking
-       → best model registered → saved to S3
-       → FastAPI loads model at startup (S3 → MLflow fallback)
-       → /predict logs inputs → Evidently detects drift
-       → git push → CI/CD rebuilds Docker image → redeploys to EC2
+```mermaid
+flowchart TD
+    TF["Terraform\nEC2 + S3 (eu-north-1)"]
+
+    subgraph CI["Layer 1 — CI/CD (GitHub Actions)"]
+        direction LR
+        GH["git push → main"] --> TEST["pytest\nunit · integration · monitoring"]
+        TEST --> BUILD["Docker build & push\nDocker Hub"]
+        BUILD --> DEPLOY["SSH → EC2\npull & restart container"]
+        DEPLOY --> SMOKE["Smoke test\ncurl /health"]
+    end
+
+    subgraph TRAIN["Layer 2 — Training Pipeline (Prefect)"]
+        direction LR
+        CSV["Raw CSV"] --> FE["data_processing.py\nfeature engineering\n~35 features"]
+        FE --> SWEEP["12+ models\nLightGBM · XGBoost · RF …"]
+        SWEEP --> MLFLOW["MLflow\nparams · metrics · artifacts"]
+        MLFLOW --> REG["Model Registry\nProduction alias"]
+        REG --> S3["S3\nbest_model_info.json\n+ scaler + artifacts"]
+    end
+
+    subgraph SERVE["Layer 3 — Serving & Monitoring"]
+        direction LR
+        API["FastAPI\nload model at startup\nS3 → MLflow fallback"]
+        API --> PRED["/predict\nbike count + confidence\n+ processing time"]
+        PRED --> BUF["prediction buffer\n(in-memory)"]
+        BUF --> EV["Evidently\ncheck_data_drift()"]
+        EV -->|"drift > 0.5"| RETRAIN["auto-retrain\nBackgroundTasks"]
+        RETRAIN --> S3
+    end
+
+    TF --> CI
+    CI --> SERVE
+    TRAIN --> S3
+    S3 --> API
 ```
 
 ## Setup
