@@ -93,7 +93,9 @@ Reference data (training distribution) is saved automatically after each trainin
 
 ## Model Performance
 
-Best model: **LightGBM** — R² 0.85–0.94, RMSE 200–400 bikes
+Best model: **LightGBM** — R² ~0.67, RMSE ~340 bikes
+
+Train/val/test uses `TimeSeriesSplit` (5 folds, last fold held out as test) to preserve temporal order and avoid leaking seasonal patterns from future months into training.
 
 ## Project Structure
 

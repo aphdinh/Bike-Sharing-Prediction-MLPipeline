@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import os
 import json
+import threading
 import numpy as np
 import pandas as pd
 import time
@@ -18,16 +19,26 @@ from ..monitoring.monitoring import initialize_monitoring, get_monitor
 from ..training.train_core import main_training_pipeline
 
 DRIFT_THRESHOLD = 0.5
-retraining_in_progress = False
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-model = None
-scaler = None
-model_metadata = None
-verification_status = None
-model_loaded_at = None
+
+class _ModelState:
+    """Holds all model-related state as a single object so it can be swapped atomically."""
+    __slots__ = ("model", "scaler", "model_metadata", "verification_status", "model_loaded_at")
+
+    def __init__(self):
+        self.model = None
+        self.scaler = None
+        self.model_metadata = None
+        self.verification_status = None
+        self.model_loaded_at = None
+
+
+_state = _ModelState()
+_state_lock = threading.Lock()
+retraining_in_progress = False
 
 
 class PredictionRequest(BaseModel):
@@ -65,23 +76,28 @@ class BatchPredictionResponse(BaseModel):
 
 
 def load_production_model():
-    global model, scaler, model_metadata, verification_status, model_loaded_at
+    global _state
+    new_state = _ModelState()
 
     if aws_available:
         try:
-            model, scaler, model_metadata = load_best_model_from_s3()
-            if model is not None:
-                verification_status = "s3_loaded"
-                model_loaded_at = datetime.now().isoformat()
+            new_state.model, new_state.scaler, new_state.model_metadata = load_best_model_from_s3()
+            if new_state.model is not None:
+                new_state.verification_status = "s3_loaded"
+                new_state.model_loaded_at = datetime.now().isoformat()
+                with _state_lock:
+                    _state = new_state
                 return True
         except Exception as e:
             logger.warning(f"S3 model load failed: {e}")
 
     try:
-        model, model_info = load_production_model_with_tracking("production")
-        if model is not None:
-            model_metadata = model_info
-            model_loaded_at = datetime.now().isoformat()
+        new_state.model, model_info = load_production_model_with_tracking("production")
+        if new_state.model is not None:
+            new_state.model_metadata = model_info
+            new_state.model_loaded_at = datetime.now().isoformat()
+            with _state_lock:
+                _state = new_state
             return True
     except Exception as e:
         logger.warning(f"MLflow load failed: {e}")
@@ -124,15 +140,16 @@ def serialize(obj):
 
 
 def ensure_model_loaded():
-    if model is None and not load_production_model():
+    if _state.model is None and not load_production_model():
         raise HTTPException(status_code=503, detail="Model not available.")
 
 
 def run_prediction(request_data: PredictionRequest) -> int:
+    state = _state  # snapshot reference — safe even if retraining swaps _state mid-request
     df = pd.DataFrame([request_data.dict()])
     X = preprocess_data(df)
-    X_input = scaler.transform(X) if scaler is not None else X
-    prediction = max(0, int(round(model.predict(X_input)[0])))
+    X_input = state.scaler.transform(X) if state.scaler is not None else X
+    prediction = max(0, int(round(state.model.predict(X_input)[0])))
 
     try:
         monitor = get_monitor()
@@ -142,8 +159,8 @@ def run_prediction(request_data: PredictionRequest) -> int:
             monitor.update_current_data(
                 pd.concat([existing, row], ignore_index=True) if existing is not None else row
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Monitor update failed: {e}")
 
     return prediction
 
@@ -152,22 +169,22 @@ def get_confidence(prediction: int) -> float:
     """Confidence based on prediction magnitude relative to model RMSE.
     Higher prediction relative to RMSE = higher confidence."""
     try:
+        metadata = _state.model_metadata
         rmse = None
-        if isinstance(model_metadata, dict):
-            rmse = (model_metadata.get("performance_metrics") or {}).get("test_rmse")
+        if isinstance(metadata, dict):
+            rmse = (metadata.get("performance_metrics") or {}).get("test_rmse")
             if rmse is None:
-                tags = (model_metadata.get("tags") or {})
-                rmse = tags.get("test_rmse_score")
+                rmse = (metadata.get("tags") or {}).get("test_rmse_score")
         if rmse:
             rmse = float(rmse)
             return round(min(0.99, 1 / (1 + rmse / max(prediction, 1))), 2)
-    except Exception:
+    except (TypeError, ValueError):
         pass
     return 0.75
 
 
 def get_model_info() -> Dict[str, Any]:
-    return {"model_type": type(model).__name__, "verification_status": verification_status, "s3_bucket": S3_BUCKET_NAME}
+    return {"model_type": type(_state.model).__name__, "verification_status": _state.verification_status, "s3_bucket": S3_BUCKET_NAME}
 
 
 @app.post("/predict", response_model=PredictionResponse)
@@ -213,7 +230,7 @@ async def check_s3_model_completeness_endpoint():
 
 
 def run_retraining():
-    global retraining_in_progress, model, scaler, model_metadata, verification_status, model_loaded_at
+    global retraining_in_progress
     retraining_in_progress = True
     try:
         logger.info("Drift detected — starting retraining...")
@@ -285,8 +302,8 @@ async def get_monitoring_status():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "model_loaded": model is not None,
-            "model_loaded_at": model_loaded_at, "verification_status": verification_status}
+    return {"status": "healthy", "model_loaded": _state.model is not None,
+            "model_loaded_at": _state.model_loaded_at, "verification_status": _state.verification_status}
 
 
 if __name__ == "__main__":

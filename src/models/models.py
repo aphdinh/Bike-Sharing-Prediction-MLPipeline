@@ -234,10 +234,10 @@ def create_objective_function(X_train, y_train, X_val, y_val, model_name):
                     rmse = float('inf')
                 if not np.isfinite(r2) or np.isnan(r2):
                     r2 = 0.0
-            except:
+            except (ValueError, TypeError):
                 rmse = float('inf')
                 r2 = 0.0
-            
+
             with mlflow.start_run(nested=True):
                 mlflow.log_params(params)
                 mlflow.log_metric("validation_rmse", rmse)
@@ -359,7 +359,7 @@ def evaluate_tuning_method(X_train, y_train, X_val, y_val, model_name, tuning_fu
                 rmse = float('inf')
             if not np.isfinite(r2) or np.isnan(r2):
                 r2 = 0.0
-        except:
+        except (ValueError, TypeError):
             rmse = float('inf')
             r2 = 0.0
     else:

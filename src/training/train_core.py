@@ -4,7 +4,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
 import warnings
 import logging
@@ -44,12 +44,21 @@ def prepare_data_core() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame,
 
     X, y, feature_names = prepare_features(df_features)
 
-    X_temp, X_test, y_temp, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=pd.cut(y, bins=5)
-    )
-    X_train, X_val, y_train, y_val = train_test_split(
-        X_temp, y_temp, test_size=0.25, random_state=42, stratify=pd.cut(y_temp, bins=5)
-    )
+    # TimeSeriesSplit with 5 folds — each fold expands the training window so every
+    # season appears in both train and test across folds, avoiding the single-split
+    # season-leakage problem. We use the last fold for final train/val/test.
+    tscv = TimeSeriesSplit(n_splits=5)
+    splits = list(tscv.split(X))
+
+    # Last fold: largest train set, held-out test set at end of year
+    train_val_idx, test_idx = splits[-1]
+    X_tv, y_tv = X.iloc[train_val_idx], y.iloc[train_val_idx]
+    X_test, y_test = X.iloc[test_idx], y.iloc[test_idx]
+
+    # Split train_val into train / val (last 20% of that window)
+    val_size = int(len(X_tv) * 0.2)
+    X_train, y_train = X_tv.iloc[:-val_size], y_tv.iloc[:-val_size]
+    X_val, y_val = X_tv.iloc[-val_size:], y_tv.iloc[-val_size:]
 
     return X_train, X_val, X_test, y_train, y_val, y_test
 
@@ -182,7 +191,7 @@ def evaluate_single_model(model, X_train, X_test, y_train, y_test, model_name, s
             overfit = train_metrics['rmse'] - test_metrics['rmse']
             if not np.isfinite(overfit):
                 overfit = 0.0
-        except:
+        except (TypeError, ValueError):
             overfit = 0.0
 
         log_metrics({
@@ -225,7 +234,7 @@ def train_all_models_core(X_train, X_test, y_train, y_test):
 def main_training_pipeline() -> Dict[str, Any]:
     try:
         mlflow.end_run()
-    except:
+    except mlflow.exceptions.MlflowException:
         pass
     experiment_id = setup_mlflow()
 

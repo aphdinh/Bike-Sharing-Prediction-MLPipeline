@@ -24,7 +24,7 @@ from ..utils.mlflow_utils import setup_mlflow
 def _setup_mlflow():
     try:
         mlflow.end_run()
-    except:
+    except mlflow.exceptions.MlflowException:
         pass
     return setup_mlflow()
 
