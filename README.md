@@ -41,9 +41,9 @@ uv pip install -r requirements.txt
 
 # Set environment variables (or run scripts/server-start.sh)
 export AWS_REGION="eu-north-1"
-export S3_BUCKET_NAME="seoul-bike-sharing-aphdinh"
+export S3_BUCKET_NAME="seoul-bike-sharing-aphdinh-2"
 export MLFLOW_TRACKING_URI="sqlite:///mlflow.db"
-export MLFLOW_ARTIFACT_URI="s3://seoul-bike-sharing-aphdinh/mlflow-artifacts/"
+export MLFLOW_ARTIFACT_URI="s3://seoul-bike-sharing-aphdinh-2/mlflow-artifacts/"
 ```
 
 ## Usage
@@ -72,6 +72,14 @@ curl -X POST "http://localhost:8000/predict" \
 ```
 
 Swagger UI: `http://localhost:8000/docs`
+
+## MLflow UI
+
+```bash
+mlflow ui --backend-store-uri sqlite:///mlflow.db
+```
+
+Open `http://localhost:5000` to view experiments, runs, and metrics.
 
 ## Monitoring
 

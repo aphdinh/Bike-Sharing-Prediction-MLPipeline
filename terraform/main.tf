@@ -42,7 +42,7 @@ resource "aws_security_group" "mlops_sg" {
 }
 
 resource "aws_s3_bucket" "seoul_bike_sharing_artifacts" {
-  bucket = "seoul-bike-sharing-aphdinh"
+  bucket = "seoul-bike-sharing-aphdinh-2"
   force_destroy = true
 }
 
