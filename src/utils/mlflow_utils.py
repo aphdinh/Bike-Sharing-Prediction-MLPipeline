@@ -165,7 +165,7 @@ def register_best_model(results_df):
     for k, v in tags.items():
         client.set_model_version_tag(prod_name, version.version, k, v)
 
-    for alias in ["production", "champion", "latest", "best"]:
+    for alias in ["production", "champion"]:
         try:
             client.set_registered_model_alias(prod_name, alias, version.version)
         except mlflow.exceptions.MlflowException:
