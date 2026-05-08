@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import os
@@ -279,7 +279,7 @@ async def generate_comprehensive_monitoring_report():
 
 
 @app.post("/monitoring/update-current-data")
-async def update_current_data_for_monitoring(data: List[Dict[str, Any]]):
+async def update_current_data_for_monitoring(data: List[Dict[str, Any]] = Body(...)):
     try:
         df = pd.DataFrame(data)
         get_monitor().update_current_data(df)
