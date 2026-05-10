@@ -300,6 +300,13 @@ async def get_monitoring_status():
         return {"status": "error", "error": str(e)}
 
 
+@app.post("/reload-model")
+async def reload_model():
+    success = load_production_model()
+    return {"reloaded": success, "verification_status": _state.verification_status,
+            "model_loaded_at": _state.model_loaded_at}
+
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "model_loaded": _state.model is not None,

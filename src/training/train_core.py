@@ -11,6 +11,7 @@ from sklearn.metrics import r2_score
 import warnings
 import logging
 import os
+import requests
 from datetime import datetime
 import mlflow
 from typing import Dict, List, Tuple, Optional, Any
@@ -290,6 +291,12 @@ def main_training_pipeline() -> Dict[str, Any]:
     print(f"  R²   = {best_r2:.4f}")
     print(f"  RMSE = {best_rmse:.2f}")
     print(f"{'='*50}\n")
+
+    try:
+        r = requests.post("http://localhost:8000/reload-model", timeout=10)
+        logging.info(f"API reloaded with new model: {r.json()}")
+    except Exception:
+        logging.info("API not running — skipping hot reload")
 
     return {
         'status': 'success',
