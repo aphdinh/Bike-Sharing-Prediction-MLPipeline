@@ -93,4 +93,4 @@ reports/monitoring/*.json
 
 # Temporary files
 *.tmp
-*.temp 
+*.temp CLAUDE.md
