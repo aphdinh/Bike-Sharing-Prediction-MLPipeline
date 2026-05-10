@@ -33,23 +33,24 @@ def _setup_mlflow():
 def prepare_training_data() -> Tuple:
     logger = get_run_logger()
     data = prepare_data_core()
-    logger.info(f"Train: {len(data[0])} | Val: {len(data[1])} | Test: {len(data[2])} | Features: {data[0].shape[1]}")
+    X_train = data[2]
+    logger.info(f"Train: {len(X_train)} | Features: {X_train.shape[1]}")
     return data
 
 
 @task(name="train_all_models", tags=["training"])
-def train_all_models(X_train, X_test, y_train, y_test) -> Tuple[pd.DataFrame, Dict]:
+def train_all_models(X, y, X_train, X_test, y_train, y_test) -> Tuple[pd.DataFrame, Dict]:
     logger = get_run_logger()
-    results_df, trained_models = train_all_models_core(X_train, X_test, y_train, y_test)
+    results_df, trained_models = train_all_models_core(X, y, X_train, X_test, y_train, y_test)
     logger.info(f"Trained {len(results_df)} models")
     return results_df, trained_models
 
 
 @task(name="hyperparameter_optimization", tags=["tuning"], cache_key_fn=task_input_hash, cache_expiration=timedelta(hours=12))
-def perform_hyperparameter_optimization(best_model_name, X_train, y_train, X_val, y_val, X_test, y_test) -> Tuple[Optional[Dict], Any]:
+def perform_hyperparameter_optimization(best_model_name, X, y, X_train, y_train, X_val, y_val, X_test, y_test) -> Tuple[Optional[Dict], Any]:
     logger = get_run_logger()
     try:
-        result, model = perform_hyperparameter_tuning_core(best_model_name, X_train, y_train, X_val, y_val, X_test, y_test)
+        result, model = perform_hyperparameter_tuning_core(best_model_name, X, y, X_train, y_train, X_val, y_val, X_test, y_test)
         if result:
             logger.info(f"Tuning complete — R²: {result['test_r2']:.4f}, RMSE: {result['test_rmse']:.4f}")
         return result, model
@@ -71,14 +72,14 @@ def ml_training_pipeline() -> Dict[str, Any]:
     logger = get_run_logger()
 
     experiment_id = _setup_mlflow()
-    X_train, X_val, X_test, y_train, y_val, y_test = prepare_training_data()
+    X, y, X_train, X_val, X_test, y_train, y_val, y_test = prepare_training_data()
 
-    results_df, trained_models = train_all_models(X_train, X_test, y_train, y_test)
+    results_df, trained_models = train_all_models(X, y, X_train, X_test, y_train, y_test)
     best_model_name = results_df.loc[results_df['test_r2'].idxmax(), 'model_name']
     logger.info(f"Best model from sweep: {best_model_name}")
 
     tuning_result, tuned_model = perform_hyperparameter_optimization(
-        best_model_name, X_train, y_train, X_val, y_val, X_test, y_test
+        best_model_name, X, y, X_train, y_train, X_val, y_val, X_test, y_test
     )
     if tuning_result:
         results_df = pd.concat([results_df, pd.DataFrame([tuning_result])], ignore_index=True)

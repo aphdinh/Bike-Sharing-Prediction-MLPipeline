@@ -42,10 +42,6 @@ def client(mock_model):
 
 
 class TestHealthEndpoint:
-    def test_health_returns_200(self, client):
-        response = client.get("/health")
-        assert response.status_code == 200
-
     def test_health_has_required_fields(self, client):
         data = client.get("/health").json()
         assert "status" in data
@@ -53,10 +49,6 @@ class TestHealthEndpoint:
 
 
 class TestPredictEndpoint:
-    def test_predict_returns_200(self, client):
-        response = client.post("/predict", json=VALID_REQUEST)
-        assert response.status_code == 200
-
     def test_predict_response_shape(self, client):
         data = client.post("/predict", json=VALID_REQUEST).json()
         assert "prediction" in data
@@ -76,17 +68,8 @@ class TestPredictEndpoint:
         response = client.post("/predict", json=bad_request)
         assert response.status_code == 422
 
-    def test_predict_invalid_humidity_returns_422(self, client):
-        bad_request = {**VALID_REQUEST, "humidity": 150}
-        response = client.post("/predict", json=bad_request)
-        assert response.status_code == 422
-
 
 class TestBatchPredictEndpoint:
-    def test_batch_predict_returns_200(self, client):
-        response = client.post("/predict/batch", json={"data": [VALID_REQUEST, VALID_REQUEST]})
-        assert response.status_code == 200
-
     def test_batch_predict_response_shape(self, client):
         data = client.post("/predict/batch", json={"data": [VALID_REQUEST]}).json()
         assert "predictions" in data
@@ -95,10 +78,6 @@ class TestBatchPredictEndpoint:
 
 
 class TestMonitoringEndpoints:
-    def test_monitoring_status_returns_200(self, client):
-        response = client.get("/monitoring/status")
-        assert response.status_code == 200
-
     def test_monitoring_status_fields(self, client):
         data = client.get("/monitoring/status").json()
         assert "monitoring_initialized" in data

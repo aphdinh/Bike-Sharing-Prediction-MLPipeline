@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.model_selection import train_test_split, TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
+from sklearn.base import clone
+from sklearn.metrics import r2_score
 import warnings
 import logging
 import os
@@ -27,8 +29,7 @@ plt.style.use('seaborn-v0_8')
 sns.set_palette("husl")
 
 
-def prepare_data_core() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame,
-                                pd.Series, pd.Series, pd.Series]:
+def prepare_data_core():
     df = load_data()
     if df.empty:
         raise ValueError("Loaded dataset is empty")
@@ -44,13 +45,10 @@ def prepare_data_core() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame,
 
     X, y, feature_names = prepare_features(df_features)
 
-    # TimeSeriesSplit with 5 folds — each fold expands the training window so every
-    # season appears in both train and test across folds, avoiding the single-split
-    # season-leakage problem. We use the last fold for final train/val/test.
     tscv = TimeSeriesSplit(n_splits=5)
     splits = list(tscv.split(X))
 
-    # Last fold: largest train set, held-out test set at end of year
+    # Last fold: held-out test set at the end of the year for final evaluation
     train_val_idx, test_idx = splits[-1]
     X_tv, y_tv = X.iloc[train_val_idx], y.iloc[train_val_idx]
     X_test, y_test = X.iloc[test_idx], y.iloc[test_idx]
@@ -60,11 +58,14 @@ def prepare_data_core() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame,
     X_train, y_train = X_tv.iloc[:-val_size], y_tv.iloc[:-val_size]
     X_val, y_val = X_tv.iloc[-val_size:], y_tv.iloc[-val_size:]
 
-    return X_train, X_val, X_test, y_train, y_val, y_test
+    # Return full X, y alongside splits so CV can use all folds
+    return X, y, X_train, X_val, X_test, y_train, y_val, y_test
 
 
 def perform_hyperparameter_tuning_core(
     best_model_name: str,
+    X: pd.DataFrame,
+    y: pd.Series,
     X_train: pd.DataFrame,
     y_train: pd.Series,
     X_val: pd.DataFrame,
@@ -81,7 +82,7 @@ def perform_hyperparameter_tuning_core(
         tuned_model = hyperparameter_comparison(X_train, y_train, X_val, y_val, best_model_name)
         if tuned_model is not None:
             result = evaluate_single_model(
-                tuned_model, X_train, X_test, y_train, y_test,
+                tuned_model, X, y, X_train, X_test, y_train, y_test,
                 f"Hyperopt_Tuned_{best_model_name}", scaler=None
             )
             logging.info(f"Tuning complete — RMSE: {result['test_rmse']:.2f}, R²: {result['test_r2']:.4f}")
@@ -175,10 +176,28 @@ def create_model_results(model_name, train_metrics, test_metrics, overfit, run_i
     }
 
 
-def evaluate_single_model(model, X_train, X_test, y_train, y_test, model_name, scaler=None):
+def cross_validate_model(model, X, y, scaler, n_splits=5):
+    tscv = TimeSeriesSplit(n_splits=n_splits)
+    scores = []
+    for train_idx, val_idx in tscv.split(X):
+        X_cv_train, X_cv_val = X.iloc[train_idx], X.iloc[val_idx]
+        y_cv_train, y_cv_val = y.iloc[train_idx], y.iloc[val_idx]
+        m = clone(model)
+        if scaler:
+            sc = StandardScaler()
+            X_cv_train = sc.fit_transform(X_cv_train)
+            X_cv_val = sc.transform(X_cv_val)
+        m.fit(X_cv_train, y_cv_train)
+        scores.append(r2_score(y_cv_val, m.predict(X_cv_val)))
+    return float(np.mean(scores)), float(np.std(scores))
+
+
+def evaluate_single_model(model, X, y, X_train, X_test, y_train, y_test, model_name, scaler=None):
     with mlflow.start_run(run_name=f"{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"):
         log_aws_tags()
         log_model_parameters(model, model_name, X_train, X_test, scaler)
+
+        cv_mean, cv_std = cross_validate_model(model, X, y, scaler)
 
         X_train_p, X_test_p, y_pred_train, y_pred_test = train_and_predict(
             model, X_train, X_test, y_train, scaler
@@ -195,6 +214,7 @@ def evaluate_single_model(model, X_train, X_test, y_train, y_test, model_name, s
             overfit = 0.0
 
         log_metrics({
+            'cv_mean_r2': cv_mean, 'cv_std_r2': cv_std,
             'train_rmse': train_metrics['rmse'], 'test_rmse': test_metrics['rmse'],
             'train_mae': train_metrics['mae'], 'test_mae': test_metrics['mae'],
             'train_r2': train_metrics['r2'], 'test_r2': test_metrics['r2'],
@@ -218,14 +238,14 @@ def get_scale_sensitive_models():
     }
 
 
-def train_all_models_core(X_train, X_test, y_train, y_test):
+def train_all_models_core(X, y, X_train, X_test, y_train, y_test):
     models = get_models()
     scale_sensitive = get_scale_sensitive_models()
     results = []
     trained_models = {}
     for name, model in models.items():
         scaler = StandardScaler() if name in scale_sensitive else None
-        result = evaluate_single_model(model, X_train, X_test, y_train, y_test, name, scaler=scaler)
+        result = evaluate_single_model(model, X, y, X_train, X_test, y_train, y_test, name, scaler=scaler)
         results.append(result)
         trained_models[name] = (model, scaler)
     return pd.DataFrame(results), trained_models
@@ -238,13 +258,13 @@ def main_training_pipeline() -> Dict[str, Any]:
         pass
     experiment_id = setup_mlflow()
 
-    X_train, X_val, X_test, y_train, y_val, y_test = prepare_data_core()
+    X, y, X_train, X_val, X_test, y_train, y_val, y_test = prepare_data_core()
 
-    results_df, trained_models = train_all_models_core(X_train, X_test, y_train, y_test)
+    results_df, trained_models = train_all_models_core(X, y, X_train, X_test, y_train, y_test)
     best_model_name = results_df.loc[results_df['test_r2'].idxmax(), 'model_name']
 
     tuning_result, tuned_model = perform_hyperparameter_tuning_core(
-        best_model_name, X_train, y_train, X_val, y_val, X_test, y_test
+        best_model_name, X, y, X_train, y_train, X_val, y_val, X_test, y_test
     )
     if tuning_result:
         results_df = pd.concat([results_df, pd.DataFrame([tuning_result])], ignore_index=True)

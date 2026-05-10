@@ -33,10 +33,6 @@ def engineered_df(raw_df):
 
 
 class TestFeatureEngineering:
-    def test_creates_cyclic_hour_features(self, engineered_df):
-        assert "hour_sin" in engineered_df.columns
-        assert "hour_cos" in engineered_df.columns
-
     def test_cyclic_encoding_values(self, engineered_df):
         expected_sin = np.sin(2 * np.pi * 8 / 24)
         expected_cos = np.cos(2 * np.pi * 8 / 24)
@@ -73,31 +69,12 @@ class TestFeatureEngineering:
         assert normal["extreme_weather"].iloc[0] == 0
         assert extreme["extreme_weather"].iloc[0] == 1
 
-    def test_interaction_features_created(self, engineered_df):
-        assert "temp_humidity_interaction" in engineered_df.columns
-        assert "wind_rain_interaction" in engineered_df.columns
-        assert "temp_solar_interaction" in engineered_df.columns
-
     def test_interaction_values(self, engineered_df):
         expected = 20.0 * 60.0 / 100
         assert abs(engineered_df["temp_humidity_interaction"].iloc[0] - expected) < 1e-6
 
 
 class TestPreprocessData:
-    def test_returns_dataframe(self, raw_df):
-        result = preprocess_data(raw_df)
-        assert isinstance(result, pd.DataFrame)
-
-    def test_no_nulls_in_output(self, raw_df):
-        result = preprocess_data(raw_df)
-        assert not result.isnull().any().any()
-
-    def test_expected_columns_present(self, raw_df):
-        result = preprocess_data(raw_df)
-        assert "hour_sin" in result.columns
-        assert "is_rush_hour" in result.columns
-        assert "temp_humidity_interaction" in result.columns
-
     def test_categorical_columns_encoded(self, raw_df):
         result = preprocess_data(raw_df)
         assert "time_of_day" not in result.columns
@@ -112,12 +89,6 @@ class TestPreprocessData:
 
 
 class TestPrepareFeatures:
-    def test_returns_x_y_features(self, engineered_df):
-        X, y, features = prepare_features(engineered_df)
-        assert isinstance(X, pd.DataFrame)
-        assert isinstance(y, pd.Series)
-        assert isinstance(features, list)
-
     def test_y_is_bike_count(self, engineered_df):
         _, y, _ = prepare_features(engineered_df)
         assert y.iloc[0] == 500

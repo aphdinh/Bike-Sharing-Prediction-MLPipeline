@@ -18,7 +18,6 @@ NUMERICAL_COLS = [
     'year', 'month', 'day_of_week', 'hour_sin', 'hour_cos',
     'month_sin', 'month_cos', 'day_of_week_sin', 'day_of_week_cos',
     'temp_humidity_interaction', 'wind_rain_interaction', 'temp_solar_interaction',
-    'rented_bike_count',
 ]
 
 CATEGORICAL_COLS = [
